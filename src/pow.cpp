@@ -290,9 +290,31 @@ int GetNBlocksWithoutHelper(const CBlockIndex* pindex, const Consensus::Params& 
   return n;
 }
 
+int GetPosPhase (const CBlockIndex* pindex, const Consensus::Params& params) { // Number from 0 to 3 to slowly "phase in" the helper block req
+  unsigned int phase = 0;
+  CBlockIndex * pindexCur = pindex->pprev;
+  int nBlocks = 1;
+  while (EnforceProofOfStake(pindexCur,params)) {
+    if (nBlocks >= 6048) {
+      phase = 3;
+      break;
+    }
+    else if (nBlocks >= 4032) {
+      phase = 2;
+    }
+    else if (nBlocks >= 2016) {
+      phase = 1;
+    }
+    pindexCur = pindexCur->pprev;
+    nBlocks++;
+  }
+  return phase;
+}
+
 bool CheckProofOfStakeWork(CBlockIndex* pindex, const Consensus::Params& params) {
   unsigned int nBits = pindex->nBits;
-  int nBlocksWithoutHelper = GetNBlocksWithoutHelper(pindex,params);
+  int nBlocksDiv = 8/mathPow(2,GetPosPhase(pindex,params));
+  int nBlocksWithoutHelper = GetNBlocksWithoutHelper(pindex,params)/nBlocksDiv;
   LogPrintf("nBlocksWithoutHelper = %d\n",nBlocksWithoutHelper);
   if (nBlocksWithoutHelper > 0) {
     unsigned int scalingFactor = mathPow(2,nBlocksWithoutHelper);
