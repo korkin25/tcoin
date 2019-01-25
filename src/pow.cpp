@@ -163,7 +163,7 @@ CKeyID GetWinningAddress (const CBlockIndex* pindex, const Consensus::Params& pa
       pindexCur = pindex->GetAncestor(i);
     }
     if (pindexCur->nMatureSat.at(nHeight) - pindexStart->nMatureSat.at(nHeight) > winningSat) {
-      LogPrintf("have pindexWin\n");
+      //LogPrintf("have pindexWin\n");
       pindexWin = pindexCur->pprev;
       break;
     }
@@ -173,6 +173,7 @@ CKeyID GetWinningAddress (const CBlockIndex* pindex, const Consensus::Params& pa
     winningBlockHeight = pindexWin->nHeight;
   }
   else {
+    LogPrintf("can't find winning block\n");
     return CKeyID();
   }
   LogPrintf("nHeight %d moneySupplyUsed %llu winningSat %llu winningBlockNumber %llu winningBlock %u\n",nHeight,moneySupplyUsed,winningSat,winningBlockNumber,winningBlockHeight);

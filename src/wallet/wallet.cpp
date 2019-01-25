@@ -1636,13 +1636,13 @@ bool CWalletTx::RelayWalletTransaction(CConnman* connman)
         CValidationState state;
         /* GetDepthInMainChain already catches known conflicts. */
         if (InMempool() || AcceptToMemoryPool(maxTxFee, state)) {
-            LogPrintf("Relaying wtx %s\n", GetHash().ToString());
+	  //LogPrintf("Relaying wtx %s\n", GetHash().ToString());
             if (connman) {
-	      LogPrintf("have connman\n");
+	      //LogPrintf("have connman\n");
                 CInv inv(MSG_TX, GetHash());
                 connman->ForEachNode([&inv](CNode* pnode)
                 {
-		  LogPrintf("push to node\n");
+		  //LogPrintf("push to node\n");
 		  pnode->PushInventory(inv);
                 });
                 return true;
