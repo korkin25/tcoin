@@ -35,4 +35,6 @@ uint256 BlockWitnessMerkleRoot(const CBlock& block, bool* mutated = NULL);
  */
 std::vector<uint256> BlockMerkleBranch(const CBlock& block, uint32_t position);
 
+bool MatchBlockMerkleTree(const CBlock& block, uint256 hash);
+
 #endif

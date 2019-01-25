@@ -10,6 +10,8 @@
 #include "script/script.h"
 #include "serialize.h"
 #include "uint256.h"
+#include "pubkey.h"
+#include "util.h"
 
 static const int SERIALIZE_TRANSACTION_NO_WITNESS = 0x40000000;
 
@@ -234,7 +236,10 @@ struct CMutableTransaction;
 template<typename Stream, typename TxType>
 inline void UnserializeTransaction(TxType& tx, Stream& s) {
     const bool fAllowWitness = !(s.GetVersion() & SERIALIZE_TRANSACTION_NO_WITNESS);
-
+    if (!fAllowWitness) {
+      //LogPrintf("Unserialize !fAllowWitness\n");
+      //if (tx.IsCoinBase()) LogPrintf("is coinbase\n");
+    }
     s >> tx.nVersion;
     unsigned char flags = 0;
     tx.vin.clear();
@@ -259,6 +264,10 @@ inline void UnserializeTransaction(TxType& tx, Stream& s) {
             s >> tx.vin[i].scriptWitness.stack;
         }
     }
+    if ((flags & 2) && fAllowWitness) { // helper block attached to tx
+      flags ^= 2;
+      s >> tx.hblock;
+    }
     if (flags) {
         /* Unknown flag in the serialization */
         throw std::ios_base::failure("Unknown transaction optional data");
@@ -269,6 +278,10 @@ inline void UnserializeTransaction(TxType& tx, Stream& s) {
 template<typename Stream, typename TxType>
 inline void SerializeTransaction(const TxType& tx, Stream& s) {
     const bool fAllowWitness = !(s.GetVersion() & SERIALIZE_TRANSACTION_NO_WITNESS);
+    if (!fAllowWitness) {
+      //LogPrintf("Serialize !fAllowWitness\n");
+      //if (tx.IsCoinBase()) LogPrintf("is coinbase\n");
+    }
 
     s << tx.nVersion;
     unsigned char flags = 0;
@@ -278,6 +291,9 @@ inline void SerializeTransaction(const TxType& tx, Stream& s) {
         if (tx.HasWitness()) {
             flags |= 1;
         }
+	if (tx.HasHelper()) {
+	  flags |= 2;
+	}
     }
     if (flags) {
         /* Use extended format in case witnesses are to be serialized. */
@@ -292,9 +308,48 @@ inline void SerializeTransaction(const TxType& tx, Stream& s) {
             s << tx.vin[i].scriptWitness.stack;
         }
     }
+    if (flags & 2) { // helper block attached to tx
+      s << tx.hblock;
+    }
     s << tx.nLockTime;
 }
 
+class CHelperBlock
+{
+public:
+  uint256 hashPrevBlock; // hash of full previous block                                                                                              
+  uint256 hashMerkleRoot; // merkle root of transaction subtree // disable for now                                                                   
+  CKeyID paymentAddress;
+  std::vector<unsigned char> signature; // signature of the above 3 items                                                                            
+
+  CHelperBlock()
+  {
+    SetNull();
+  }
+
+  ADD_SERIALIZE_METHODS;
+
+  template <typename Stream, typename Operation>
+  inline void SerializationOp(Stream& s, Operation ser_action) {
+    READWRITE(hashPrevBlock);
+    READWRITE(hashMerkleRoot);
+    READWRITE(*(uint160*)(&paymentAddress));
+    READWRITE(signature);
+  }
+
+  void SetNull()
+  {
+    hashPrevBlock.SetNull();
+    hashMerkleRoot.SetNull();
+    paymentAddress.SetNull();
+    signature.clear();
+  }
+
+  bool IsNull() const
+  {
+    return (hashPrevBlock.IsNull());
+  }
+};
 
 /** The basic transaction that is broadcasted on the network and contained in
  * blocks.  A transaction can contain multiple inputs and outputs.
@@ -320,6 +375,7 @@ public:
     const std::vector<CTxIn> vin;
     const std::vector<CTxOut> vout;
     const uint32_t nLockTime;
+  const CHelperBlock hblock;
 
 private:
     /** Memory only. */
@@ -350,7 +406,7 @@ public:
     }
 
     const uint256& GetHash() const {
-        return hash;
+      return hash;
     }
 
     // Compute a hash that includes both transaction and witness data
@@ -400,6 +456,11 @@ public:
         }
         return false;
     }
+
+  bool HasHelper() const
+  {
+    return !hblock.IsNull();
+  }
 };
 
 /** A mutable version of CTransaction. */
@@ -409,6 +470,7 @@ struct CMutableTransaction
     std::vector<CTxIn> vin;
     std::vector<CTxOut> vout;
     uint32_t nLockTime;
+  CHelperBlock hblock;
 
     CMutableTransaction();
     CMutableTransaction(const CTransaction& tx);
@@ -448,6 +510,17 @@ struct CMutableTransaction
         }
         return false;
     }
+
+    bool HasHelper() const
+  {
+    return !hblock.IsNull();
+  }
+
+  bool IsCoinBase() const
+  {
+    return (vin.size() == 1 && vin[0].prevout.IsNull());
+  }
+
 };
 
 typedef std::shared_ptr<const CTransaction> CTransactionRef;

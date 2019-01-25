@@ -78,23 +78,31 @@ public:
         consensus.powLimit = uint256S("00000fffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
         consensus.nPowTargetTimespan = 14 * 24 * 60 * 60; // two weeks
         consensus.nPowTargetSpacing = 10 * 60;
-        consensus.fPowAllowMinDifficultyBlocks = false;
+        consensus.fPowAllowMinDifficultyBlocks = false; // switch to true for testing forks
+	consensus.nHeightMinDiff = 602433;
         consensus.fPowNoRetargeting = false;
-        consensus.nRuleChangeActivationThreshold = 1916; // 95% of 2016
-        consensus.nMinerConfirmationWindow = 2016; // nPowTargetTimespan / nPowTargetSpacing
+        consensus.nRuleChangeActivationThreshold = 75; // 75% of 100
+        consensus.nMinerConfirmationWindow = 100; // nPowTargetTimespan / nPowTargetSpacing
+	consensus.nPosLookback = 7104000; // 32 periods ~ 128 years
+	consensus.nHeightCP = 532800; // 80% premine
+	consensus.nHeightLastAnomaly = 135995; // last non standard block before premine + 99
         consensus.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].bit = 28;
         consensus.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].nStartTime = 1199145601; // January 1, 2008
         consensus.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].nTimeout = 1230767999; // December 31, 2008
 
         // Deployment of BIP68, BIP112, and BIP113.
         consensus.vDeployments[Consensus::DEPLOYMENT_CSV].bit = 0;
-        consensus.vDeployments[Consensus::DEPLOYMENT_CSV].nStartTime = 1462060800; // May 1st, 2016
-        consensus.vDeployments[Consensus::DEPLOYMENT_CSV].nTimeout = 1493596800; // May 1st, 2017
+        consensus.vDeployments[Consensus::DEPLOYMENT_CSV].nStartTime = 1548000000; // 
+        consensus.vDeployments[Consensus::DEPLOYMENT_CSV].nTimeout = 1579536000; //
 
         // Deployment of SegWit (BIP141, BIP143, and BIP147)
         consensus.vDeployments[Consensus::DEPLOYMENT_SEGWIT].bit = 1;
-        consensus.vDeployments[Consensus::DEPLOYMENT_SEGWIT].nStartTime = 1479168000; // November 15th, 2016.
-        consensus.vDeployments[Consensus::DEPLOYMENT_SEGWIT].nTimeout = 1510704000; // November 15th, 2017.
+        consensus.vDeployments[Consensus::DEPLOYMENT_SEGWIT].nStartTime = 1548000000; // same as for POS
+        consensus.vDeployments[Consensus::DEPLOYMENT_SEGWIT].nTimeout =  1579536000; //
+
+	consensus.vDeployments[Consensus::DEPLOYMENT_POS].bit = 2;
+	consensus.vDeployments[Consensus::DEPLOYMENT_POS].nStartTime = 1548000000; // Jan 20, 2009
+	consensus.vDeployments[Consensus::DEPLOYMENT_POS].nTimeout = 1579536000;
 
         // The best chain should have at least this much work.
         consensus.nMinimumChainWork = uint256S("0x00");
@@ -138,7 +146,7 @@ public:
         checkpointData = (CCheckpointData) {
             boost::assign::map_list_of
             ( 0, uint256S("0xbcfaed16ea9e080a182d1fcd113bf7d98dd4150027911c1277c2f6823a79594c"))
-	    ( 532800, uint256S("d98e79505e5a191354b043a4858f4a1f4109362a29bd1d350d80ac91b7d9bed8"))
+	    ( 532800, uint256S("0xd98e79505e5a191354b043a4858f4a1f4109362a29bd1d350d80ac91b7d9bed8"))
         };
 
         chainTxData = ChainTxData{
@@ -165,42 +173,50 @@ public:
         consensus.BIP65Height = 0;
         consensus.BIP66Height = 0;
         consensus.powLimit = uint256S("00000fffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
-        consensus.nPowTargetTimespan = 14 * 24 * 60 * 60; // two weeks
-        consensus.nPowTargetSpacing = 10 * 60;
+        consensus.nPowTargetTimespan = 14 * 24 * 60 * 12; // two weeks divided by 5
+        consensus.nPowTargetSpacing = 2 * 60; // 2 minutes
         consensus.fPowAllowMinDifficultyBlocks = true;
+	consensus.nHeightMinDiff = 1;
         consensus.fPowNoRetargeting = false;
-        consensus.nRuleChangeActivationThreshold = 1512; // 75% for testchains
-        consensus.nMinerConfirmationWindow = 2016; // nPowTargetTimespan / nPowTargetSpacing
+        consensus.nRuleChangeActivationThreshold = 75; // 75% for testchains
+        consensus.nMinerConfirmationWindow = 100; // nPowTargetTimespan / nPowTargetSpacing
+	consensus.nPosLookback = 7104000;
+	consensus.nHeightCP = 10100;
+	consensus.nHeightLastAnomaly = 5000;
         consensus.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].bit = 28;
         consensus.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].nStartTime = 1199145601; // January 1, 2008
         consensus.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].nTimeout = 1230767999; // December 31, 2008
 
         // Deployment of BIP68, BIP112, and BIP113.
         consensus.vDeployments[Consensus::DEPLOYMENT_CSV].bit = 0;
-        consensus.vDeployments[Consensus::DEPLOYMENT_CSV].nStartTime = 1456790400; // March 1st, 2016
-        consensus.vDeployments[Consensus::DEPLOYMENT_CSV].nTimeout = 1493596800; // May 1st, 2017
+	consensus.vDeployments[Consensus::DEPLOYMENT_CSV].nStartTime = 1548000000;
+        consensus.vDeployments[Consensus::DEPLOYMENT_CSV].nTimeout = 1579536000;
 
         // Deployment of SegWit (BIP141, BIP143, and BIP147)
-        consensus.vDeployments[Consensus::DEPLOYMENT_SEGWIT].bit = 1;
-        consensus.vDeployments[Consensus::DEPLOYMENT_SEGWIT].nStartTime = 1462060800; // May 1st 2016
-        consensus.vDeployments[Consensus::DEPLOYMENT_SEGWIT].nTimeout = 1493596800; // May 1st 2017
+	consensus.vDeployments[Consensus::DEPLOYMENT_SEGWIT].bit = 1;
+        consensus.vDeployments[Consensus::DEPLOYMENT_SEGWIT].nStartTime = 1548000000;
+        consensus.vDeployments[Consensus::DEPLOYMENT_SEGWIT].nTimeout = 1579536000;
 
+	consensus.vDeployments[Consensus::DEPLOYMENT_POS].bit = 2;
+        consensus.vDeployments[Consensus::DEPLOYMENT_POS].nStartTime = 1548000000;
+        consensus.vDeployments[Consensus::DEPLOYMENT_POS].nTimeout = 1579536000;
+	
         // The best chain should have at least this much work.
-        consensus.nMinimumChainWork = uint256S("0x00000fffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
+        consensus.nMinimumChainWork = uint256S("0x00");
 
         // By default assume that the signatures in ancestors of this block are valid.
-        consensus.defaultAssumeValid = uint256S("0x0f9188f13cb7b2c71f2a335e3a4fc328bf5beb436012afca590b1a11466e2206"); //genesis
+        consensus.defaultAssumeValid = uint256S("0x00"); //genesis
 
         pchMessageStart[0] = 0x0b;
         pchMessageStart[1] = 0x11;
         pchMessageStart[2] = 0x09;
         pchMessageStart[3] = 0x07;
         nDefaultPort = 19285;
-        nPruneAfterHeight = 1000;
+        nPruneAfterHeight = 100000;
 
-        genesis = CreateGenesisBlock(1296688602, 414098458, 0x1d00ffff, 1, 200 * COIN);
+        genesis = CreateGenesisBlock(1548244339, 15715, 0x1f00ffff, 1, 200 * COIN);
         consensus.hashGenesisBlock = genesis.GetHash();
-        //assert(consensus.hashGenesisBlock == uint256S("0x000000000933ea01ad0ee984209779baaec3ced90fa3f408719526f8d77f4943"));
+        assert(consensus.hashGenesisBlock == uint256S("0x8f5881bd01d9bbed548ecc65500bbae8c42cb37f451e7fcefa7f5a4f3a9def70"));
         //assert(genesis.hashMerkleRoot == uint256S("0x4a5e1e4baab89f3a32518a88c31bc87f618f76673e2cc77ab2127b7afdeda33b"));
 
         // nodes with support for servicebits filtering should be at the top
@@ -216,13 +232,13 @@ public:
 
         fMiningRequiresPeers = true;
         fDefaultConsistencyChecks = false;
-        fRequireStandard = false;
+        fRequireStandard = true;
         fMineBlocksOnDemand = false;
 
 
         checkpointData = (CCheckpointData) {
             boost::assign::map_list_of
-            ( 0, uint256S("0f9188f13cb7b2c71f2a335e3a4fc328bf5beb436012afca590b1a11466e2206")),
+            ( 0, uint256S("0x8f5881bd01d9bbed548ecc65500bbae8c42cb37f451e7fcefa7f5a4f3a9def70")),
         };
 
         chainTxData = ChainTxData{

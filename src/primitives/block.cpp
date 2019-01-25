@@ -37,6 +37,11 @@ std::string CBlock::ToString() const
     return s.str();
 }
 
+uint256 CBlock::GetFullHash() const
+{
+    return SerializeHash(*this);
+}
+
 int64_t GetBlockWeight(const CBlock& block)
 {
     // This implements the weight = (stripped_size * 4) + witness_size formula,

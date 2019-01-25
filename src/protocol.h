@@ -267,6 +267,8 @@ enum ServiceFlags : uint64_t {
     // NODE_XTHIN means the node supports Xtreme Thinblocks
     // If this is turned off then the node will not service nor make xthin requests
     NODE_XTHIN = (1 << 4),
+    // This node provides blocks including helper blocks
+    NODE_HELPER = (1 << 5)
 
     // Bits 24-31 are reserved for temporary experiments. Just pick a bit that
     // isn't getting used, or one not being used much, and notify the
@@ -315,6 +317,7 @@ public:
 
 /** getdata message type flags */
 const uint32_t MSG_WITNESS_FLAG = 1 << 30;
+const uint32_t MSG_HELPER_FLAG = 1 << 29;
 const uint32_t MSG_TYPE_MASK    = 0xffffffff >> 2;
 
 /** getdata / inv message types.
@@ -329,6 +332,7 @@ enum GetDataMsg
     // The following can only occur in getdata. Invs always use TX or BLOCK.
     MSG_FILTERED_BLOCK = 3,  //!< Defined in BIP37
     MSG_CMPCT_BLOCK = 4,     //!< Defined in BIP152
+    MSG_BLOCK_POS = 5,
     MSG_WITNESS_BLOCK = MSG_BLOCK | MSG_WITNESS_FLAG, //!< Defined in BIP144
     MSG_WITNESS_TX = MSG_TX | MSG_WITNESS_FLAG,       //!< Defined in BIP144
     MSG_FILTERED_WITNESS_BLOCK = MSG_FILTERED_BLOCK | MSG_WITNESS_FLAG,

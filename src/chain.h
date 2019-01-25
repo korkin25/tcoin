@@ -11,6 +11,7 @@
 #include "pow.h"
 #include "tinyformat.h"
 #include "uint256.h"
+#include "base58.h"
 
 #include <vector>
 
@@ -192,6 +193,24 @@ public:
     //! Verification status of this block. See enum BlockStatus
     unsigned int nStatus;
 
+    //! Money Supply up to and including that block
+    uint64_t nMoneySupply;
+
+  //! Mature Satoshi of UTXOs up to and including that block, for each block up to that block
+  std::map<int,uint64_t> nMatureSat;
+
+    //! The sum of outputs for the block (not just coinbase)
+    uint64_t nGenerated;
+
+  //! (memory only)
+  const CBlock* pblock;
+
+  //! (memory only)
+  CKeyID winningAddress;
+
+  //! (memory only)
+  int nBlocksWithoutHelper;
+
     //! block header
     int nVersion;
     uint256 hashMerkleRoot;
@@ -218,8 +237,14 @@ public:
         nTx = 0;
         nChainTx = 0;
         nStatus = 0;
+	nMoneySupply = 0;
+	nMatureSat.clear();
+	nGenerated = 0;
         nSequenceId = 0;
         nTimeMax = 0;
+	pblock = 0;
+	winningAddress = CKeyID();
+	nBlocksWithoutHelper = 0;
 
         nVersion       = 0;
         hashMerkleRoot = uint256();
@@ -343,6 +368,7 @@ public:
     //! Efficiently find an ancestor of this block.
     CBlockIndex* GetAncestor(int height);
     const CBlockIndex* GetAncestor(int height) const;
+
 };
 
 arith_uint256 GetBlockProof(const CBlockIndex& block);
@@ -380,6 +406,9 @@ public:
             READWRITE(VARINT(nDataPos));
         if (nStatus & BLOCK_HAVE_UNDO)
             READWRITE(VARINT(nUndoPos));
+	READWRITE(VARINT(nMoneySupply));
+	READWRITE(nMatureSat);
+	READWRITE(VARINT(nGenerated));
 
         // block header
         READWRITE(this->nVersion);
@@ -459,6 +488,20 @@ public:
     /** Return the maximal height in the chain. Is equal to chain.Tip() ? chain.Tip()->nHeight : -1. */
     int Height() const {
         return vChain.size() - 1;
+    }
+
+    uint64_t GetMoneySupply() const {
+      int nBlocks = vChain.size();
+      if (nBlocks > 0)
+	return vChain[nBlocks-1]->nMoneySupply;
+      return 0;
+    }
+
+    uint64_t GetMatureUTXOSat(int nHeight) const {
+      int nBlocks = vChain.size();
+      if (nBlocks > 0)
+	return vChain[nBlocks-1]->nMatureSat[nHeight];
+      return 0;
     }
 
     /** Set/initialize a chain with a given tip. */

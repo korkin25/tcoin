@@ -1580,6 +1580,11 @@ bool AppInitMain(boost::thread_group& threadGroup, CScheduler& scheduler)
         nRelevantServices = ServiceFlags(nRelevantServices | NODE_WITNESS);
     }
 
+    if (chainparams.GetConsensus().vDeployments[Consensus::DEPLOYMENT_POS].nTimeout != 0) {
+      nLocalServices = ServiceFlags(nLocalServices | NODE_HELPER);
+      nRelevantServices = ServiceFlags(nRelevantServices | NODE_HELPER);
+    }
+
     // ********************************************************* Step 10: import blocks
 
     if (!CheckDiskSpace())

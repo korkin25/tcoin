@@ -24,6 +24,7 @@
 #include "util.h"
 #include "utilmoneystr.h"
 #include "validationinterface.h"
+#include "base58.h"
 
 #include <algorithm>
 #include <boost/thread.hpp>
@@ -180,6 +181,36 @@ std::unique_ptr<CBlockTemplate> BlockAssembler::CreateNewBlock(const CScript& sc
     nLastBlockSize = nBlockSize;
     nLastBlockWeight = nBlockWeight;
 
+    CHelperBlock hblock;
+    CBlock blockPrev;
+    CValidationState state;
+    unsigned int scalingFactor = 1;
+    if (EnforceProofOfStake(pindexPrev,chainparams.GetConsensus())) {
+      if (ReadBlockFromDisk(blockPrev,pindexPrev,chainparams.GetConsensus())) {
+	if (pindexPrev->winningAddress.IsNull()) {
+	  pindexPrev->winningAddress = GetWinningAddress(pindexPrev,chainparams.GetConsensus());
+	}
+	if (pindexPrev->winningAddress.IsNull())
+	  throw std::runtime_error(strprintf("%s: Failed to get winning address: %s", __func__, FormatStateMessage(state)));
+	CKeyID addr = pindexPrev->winningAddress;
+	uint256 helperId = SerializeHash(addr.ToString()+blockPrev.GetFullHash().ToString(),SER_GETHASH,0);
+	CTransactionRef ptx;
+	uint256 hashBlock;
+	LogPrintf("Look for transaction with helperId %s\n",helperId.ToString());
+	if (GetTransaction(helperId,ptx,chainparams.GetConsensus(),hashBlock) && ptx->hblock.hashMerkleRoot.IsNull() && VerifyHelperSignature(&ptx->hblock,addr)) {
+	  LogPrintf("Miner has a helper block\n");
+	  hblock = ptx->hblock;
+	}
+	else {
+	  scalingFactor = mathPow(2,pindexPrev->nBlocksWithoutHelper+1);
+	}
+      }
+      else {
+	throw std::runtime_error(strprintf("%s: Failed to read prev block: %s", __func__, FormatStateMessage(state)));
+      }
+    }
+    LogPrintf("miner scalingFactor = %u\n",scalingFactor);
+
     // Create coinbase transaction.
     CMutableTransaction coinbaseTx;
     coinbaseTx.vin.resize(1);
@@ -188,10 +219,11 @@ std::unique_ptr<CBlockTemplate> BlockAssembler::CreateNewBlock(const CScript& sc
     coinbaseTx.vout[0].scriptPubKey = scriptPubKeyIn;
     coinbaseTx.vout[0].nValue = nFees + GetBlockSubsidy(nHeight, chainparams.GetConsensus());
     coinbaseTx.vin[0].scriptSig = CScript() << nHeight << OP_0;
+    coinbaseTx.hblock = hblock;
     pblock->vtx[0] = MakeTransactionRef(std::move(coinbaseTx));
     pblocktemplate->vchCoinbaseCommitment = GenerateCoinbaseCommitment(*pblock, pindexPrev, chainparams.GetConsensus());
     pblocktemplate->vTxFees[0] = -nFees;
-
+    
     uint64_t nSerializeSize = GetSerializeSize(*pblock, SER_NETWORK, PROTOCOL_VERSION);
     LogPrintf("CreateNewBlock(): total size: %u block weight: %u txs: %u fees: %ld sigops %d\n", nSerializeSize, GetBlockWeight(*pblock), nBlockTx, nFees, nBlockSigOpsCost);
 
@@ -199,13 +231,19 @@ std::unique_ptr<CBlockTemplate> BlockAssembler::CreateNewBlock(const CScript& sc
     pblock->hashPrevBlock  = pindexPrev->GetBlockHash();
     UpdateTime(pblock, chainparams.GetConsensus(), pindexPrev);
     pblock->nBits          = GetNextWorkRequired(pindexPrev, pblock, chainparams.GetConsensus());
+    arith_uint256 bnBits;
+    bnBits.SetCompact(pblock->nBits);
+    bnBits /= scalingFactor;
+    pblock->nBitsPos = bnBits.GetCompact();
     pblock->nNonce         = 0;
     pblocktemplate->vTxSigOpsCost[0] = WITNESS_SCALE_FACTOR * GetLegacySigOpCount(*pblock->vtx[0]);
 
-    CValidationState state;
+    LogPrintf("test block validity\n");
+    
     if (!TestBlockValidity(state, chainparams, *pblock, pindexPrev, false, false)) {
         throw std::runtime_error(strprintf("%s: TestBlockValidity failed: %s", __func__, FormatStateMessage(state)));
     }
+    LogPrintf("tested validity\n");
     int64_t nTime2 = GetTimeMicros();
 
     LogPrint("bench", "CreateNewBlock() packages: %.2fms (%d packages, %d updated descendants), validity: %.2fms (total %.2fms)\n", 0.001 * (nTime1 - nTimeStart), nPackagesSelected, nDescendantsUpdated, 0.001 * (nTime2 - nTime1), 0.001 * (nTime2 - nTimeStart));
@@ -325,9 +363,11 @@ bool BlockAssembler::TestForBlock(CTxMemPool::txiter iter)
 
 void BlockAssembler::AddToBlock(CTxMemPool::txiter iter)
 {
-    pblock->vtx.emplace_back(iter->GetSharedTx());
-    pblocktemplate->vTxFees.push_back(iter->GetFee());
-    pblocktemplate->vTxSigOpsCost.push_back(iter->GetSigOpCost());
+  if (iter->GetSharedTx()->HasHelper())
+    return;
+  pblock->vtx.emplace_back(iter->GetSharedTx());
+  pblocktemplate->vTxFees.push_back(iter->GetFee());
+  pblocktemplate->vTxSigOpsCost.push_back(iter->GetSigOpCost());
     if (fNeedSizeAccounting) {
         nBlockSize += ::GetSerializeSize(iter->GetTx(), SER_NETWORK, PROTOCOL_VERSION);
     }
@@ -643,4 +683,5 @@ void IncrementExtraNonce(CBlock* pblock, const CBlockIndex* pindexPrev, unsigned
 
     pblock->vtx[0] = MakeTransactionRef(std::move(txCoinbase));
     pblock->hashMerkleRoot = BlockMerkleRoot(*pblock);
+    //pblock->phblock->hashMerkleRoot = pblock->hashMerkleRoot;
 }

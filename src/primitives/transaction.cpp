@@ -8,6 +8,7 @@
 #include "hash.h"
 #include "tinyformat.h"
 #include "utilstrencodings.h"
+#include "base58.h"
 
 std::string COutPoint::ToString() const
 {
@@ -55,30 +56,40 @@ std::string CTxOut::ToString() const
 }
 
 CMutableTransaction::CMutableTransaction() : nVersion(CTransaction::CURRENT_VERSION), nLockTime(0) {}
-CMutableTransaction::CMutableTransaction(const CTransaction& tx) : nVersion(tx.nVersion), vin(tx.vin), vout(tx.vout), nLockTime(tx.nLockTime) {}
+CMutableTransaction::CMutableTransaction(const CTransaction& tx) : nVersion(tx.nVersion), vin(tx.vin), vout(tx.vout), nLockTime(tx.nLockTime), hblock(tx.hblock) {}
 
 uint256 CMutableTransaction::GetHash() const
 {
+    if (HasHelper()) {
+      //LogPrintf("CMutableTransaction GetHash HasHelper\n");
+      return SerializeHash(this->hblock.paymentAddress.ToString()+this->hblock.hashPrevBlock.ToString(), SER_GETHASH, 0);
+    }
     return SerializeHash(*this, SER_GETHASH, SERIALIZE_TRANSACTION_NO_WITNESS);
 }
 
 uint256 CTransaction::ComputeHash() const
 {
-    return SerializeHash(*this, SER_GETHASH, SERIALIZE_TRANSACTION_NO_WITNESS);
+  if (HasHelper()) {
+    //LogPrintf("CTransaction ComputeHash HasHelper\n");
+    return SerializeHash(this->hblock.paymentAddress.ToString()+this->hblock.hashPrevBlock.ToString(), SER_GETHASH, 0);
+  }
+  uint256 hashRet = SerializeHash(*this, SER_GETHASH, SERIALIZE_TRANSACTION_NO_WITNESS);
+  //LogPrintf("CTransaction ComputeHash no helper: %s\n",hashRet.ToString());
+  return hashRet;
 }
 
 uint256 CTransaction::GetWitnessHash() const
 {
-    if (!HasWitness()) {
-        return GetHash();
-    }
-    return SerializeHash(*this, SER_GETHASH, 0);
+  if (!HasWitness()) {
+    return hash;
+  }
+  return SerializeHash(*this, SER_GETHASH, 0);
 }
 
 /* For backward compatibility, the hash is initialized to 0. TODO: remove the need for this default constructor entirely. */
 CTransaction::CTransaction() : nVersion(CTransaction::CURRENT_VERSION), vin(), vout(), nLockTime(0), hash() {}
-CTransaction::CTransaction(const CMutableTransaction &tx) : nVersion(tx.nVersion), vin(tx.vin), vout(tx.vout), nLockTime(tx.nLockTime), hash(ComputeHash()) {}
-CTransaction::CTransaction(CMutableTransaction &&tx) : nVersion(tx.nVersion), vin(std::move(tx.vin)), vout(std::move(tx.vout)), nLockTime(tx.nLockTime), hash(ComputeHash()) {}
+CTransaction::CTransaction(const CMutableTransaction &tx) : nVersion(tx.nVersion), vin(tx.vin), vout(tx.vout), nLockTime(tx.nLockTime), hblock(tx.hblock), hash(ComputeHash()) {}
+CTransaction::CTransaction(CMutableTransaction &&tx) : nVersion(tx.nVersion), vin(std::move(tx.vin)), vout(std::move(tx.vout)), nLockTime(tx.nLockTime), hblock(tx.hblock), hash(ComputeHash()) {}
 
 CAmount CTransaction::GetValueOut() const
 {

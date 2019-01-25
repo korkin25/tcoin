@@ -9,6 +9,7 @@
 #include "primitives/transaction.h"
 #include "serialize.h"
 #include "uint256.h"
+#include "util.h"
 
 /** Nodes collect new transactions into a block, hash them into a hash tree,
  * and scan through nonce values to make the block's hash satisfy proof-of-work
@@ -27,6 +28,7 @@ public:
     uint32_t nTime;
     uint32_t nBits;
     uint32_t nNonce;
+  uint32_t nBitsPos; // effective nBits taking into account proof of stake rules
 
     CBlockHeader()
     {
@@ -70,12 +72,11 @@ public:
     }
 };
 
-
 class CBlock : public CBlockHeader
 {
 public:
     // network and disk
-    std::vector<CTransactionRef> vtx;
+  std::vector<CTransactionRef> vtx;
 
     // memory only
     mutable bool fChecked;
@@ -90,35 +91,53 @@ public:
         SetNull();
         *((CBlockHeader*)this) = header;
     }
+  
+  ADD_SERIALIZE_METHODS;
+  
+  template <typename Stream, typename Operation>
+  inline void SerializationOp(Stream& s, Operation ser_action) {
+    READWRITE(*(CBlockHeader*)this);
+    READWRITE(vtx);
+  }
+  
+  void SetNull()
+  {
+    CBlockHeader::SetNull();
+    vtx.clear();
+    fChecked = false;
+  }
 
-    ADD_SERIALIZE_METHODS;
+  CBlockHeader GetBlockHeader() const
+  {
+    CBlockHeader block;
+    block.nVersion       = nVersion;
+    block.hashPrevBlock  = hashPrevBlock;
+    block.hashMerkleRoot = hashMerkleRoot;
+    block.nTime          = nTime;
+    block.nBits          = nBits;
+    block.nNonce         = nNonce;
+    return block;
+  }
 
-    template <typename Stream, typename Operation>
-    inline void SerializationOp(Stream& s, Operation ser_action) {
-        READWRITE(*(CBlockHeader*)this);
-        READWRITE(vtx);
-    }
+  bool HasHelper() const { // checks if POS is active using just the version number
+    /*    static const int32_t VERSIONBITS_TOP_BITS = 0x20000000UL;
+    static const int32_t VERSIONBITS_TOP_MASK = 0xE0000000UL;
+    const uint32_t mask = ((uint32_t)1) << 2;
+    return (((nVersion & VERSIONBITS_TOP_MASK) == VERSIONBITS_TOP_BITS) && (nVersion & mask) != 0);*/
+    if (vtx.size() && vtx[0])
+      return vtx[0]->HasHelper();
+    return false;
+  }
 
-    void SetNull()
-    {
-        CBlockHeader::SetNull();
-        vtx.clear();
-        fChecked = false;
-    }
+  const CHelperBlock * GetHelper() const {
+    if (HasHelper())
+      return &(vtx[0]->hblock);
+    return 0;
+  }
 
-    CBlockHeader GetBlockHeader() const
-    {
-        CBlockHeader block;
-        block.nVersion       = nVersion;
-        block.hashPrevBlock  = hashPrevBlock;
-        block.hashMerkleRoot = hashMerkleRoot;
-        block.nTime          = nTime;
-        block.nBits          = nBits;
-        block.nNonce         = nNonce;
-        return block;
-    }
+  std::string ToString() const;
 
-    std::string ToString() const;
+  uint256 GetFullHash() const;
 };
 
 /** Describes a place in the block chain to another node such that if the

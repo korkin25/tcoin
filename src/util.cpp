@@ -854,3 +854,19 @@ std::string CopyrightHolders(const std::string& strPrefix)
     }
     return strCopyrightHolders;
 }
+
+int mathPow(int base, int exponent) {
+  int counter = exponent;
+  int result = base;
+  if (counter == 0)
+    return 1;
+  if (counter == 1)
+    return result;
+  if (counter < 0)
+    return -1;
+  do {
+    result *= base;
+    counter--;
+  } while (counter > 1);
+  return result;
+}

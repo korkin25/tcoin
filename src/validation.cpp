@@ -35,9 +35,13 @@
 #include "validationinterface.h"
 #include "versionbits.h"
 #include "warnings.h"
+#include "wallet/wallet.h"
+#include "wallet/rpcwallet.h"
+#include "net.h"
 
 #include <atomic>
 #include <sstream>
+#include <unordered_map>
 
 #include <boost/algorithm/string/replace.hpp>
 #include <boost/algorithm/string/join.hpp>
@@ -1148,7 +1152,7 @@ bool ReadBlockFromDisk(CBlock& block, const CDiskBlockPos& pos, const Consensus:
 
     // Check the header
     if (!CheckProofOfWork(block.GetPoWHash(), block.nBits, consensusParams))
-        return error("ReadBlockFromDisk: Errors in block header at %s", pos.ToString());
+      return error("ReadBlockFromDisk: Errors in block header at %s", pos.ToString());
 
     return true;
 }
@@ -1162,6 +1166,15 @@ bool ReadBlockFromDisk(CBlock& block, const CBlockIndex* pindex, const Consensus
                 pindex->ToString(), pindex->GetBlockPos().ToString());
     return true;
 }
+
+/*bool ReadHelperBlockFromDisk(CHelperBlock& block, const CBlockIndex* pindex, const Consensus::Params& consensusParams)
+{
+  if (pindex->nHeight == chainActive.Height() + 1) {
+    LogPrintf("ReadHelperBlockFromDisk: at pindex candidate\n");
+    block = *(pindex->pHelperBlock); // get it from memory
+  }
+  return true;
+  }*/
 
 CAmount GetBlockSubsidy(int nHeight, const Consensus::Params& consensusParams)
 {
@@ -1692,8 +1705,9 @@ int32_t ComputeBlockVersion(const CBlockIndex* pindexPrev, const Consensus::Para
 
     for (int i = 0; i < (int)Consensus::MAX_VERSION_BITS_DEPLOYMENTS; i++) {
         ThresholdState state = VersionBitsState(pindexPrev, params, (Consensus::DeploymentPos)i, versionbitscache);
-        if (state == THRESHOLD_LOCKED_IN || state == THRESHOLD_STARTED) {
-            nVersion |= VersionBitsMask(params, (Consensus::DeploymentPos)i);
+        if (state == THRESHOLD_LOCKED_IN || state == THRESHOLD_STARTED && pindexPrev->nHeight>params.nHeightCP) {
+	  //LogPrintf("add version bits mask for i=%d\n",i);
+	  nVersion |= VersionBitsMask(params, (Consensus::DeploymentPos)i);
         }
     }
 
@@ -1735,6 +1749,251 @@ static int64_t nTimeIndex = 0;
 static int64_t nTimeCallbacks = 0;
 static int64_t nTimeTotal = 0;
 
+bool ReUpdateMatureUTXOSat(CBlockIndex * pindex, int nHeightState, CCoinsViewCache& view, const Consensus::Params& params) {
+
+  LogPrintf("ReUpdate mature utxo sat with nBlocks = %d\n",pindex->nHeight);
+
+  int nBlocks = pindex->nHeight;
+  if (nBlocks == 0) {
+    pindex->nMatureSat[nHeightState] = 0;
+    return true;
+  }
+
+  LogPrintf("please restart client with the \"-reindex\" option"); // tmp until well tested
+  return false;
+
+  // Get highest state for the index;
+  int maxState = 0;
+  for (auto it = pindex->nMatureSat.begin(); it != pindex->nMatureSat.end(); ++it) {
+    if (it->first > maxState)
+      maxState = it->first;
+  }
+  LogPrintf("maxState = %d\n",maxState);
+  auto it = pindex->pprev->nMatureSat.find(maxState-1);
+  if (it != pindex->pprev->nMatureSat.end()) {
+    LogPrintf("fast reupdate\n");
+    for (unsigned int i=maxState+1; i<=nHeightState; i++) {
+      LogPrintf("state = %u\n",i);
+      CBlock block;
+      CBlockIndex * pindexState = chainActive[i];
+      std::unordered_map<int,CAmount> heightToVals;
+      if (!ReadBlockFromDisk(block, pindexState, params))
+	return false;      
+      for (unsigned int j = 0; j < block.vtx.size(); j++) {
+	const CTransaction &tx = *(block.vtx[j]);
+	if (!tx.IsCoinBase()) {
+	  for (size_t k = 0; k < tx.vin.size(); k++) {
+	    COutPoint prevout = tx.vin[k].prevout;
+	    CTransactionRef txOut;
+	    uint256 hashBlock;
+	    if (!GetTransaction(prevout.hash,txOut,params,hashBlock)) {
+	      LogPrintf("can't find transaction %s\n",prevout.hash.GetHex().c_str());
+	      return false;
+	    }
+	    BlockMap::iterator mi = mapBlockIndex.find(hashBlock);
+	    if (mi == mapBlockIndex.end()) {
+	      LogPrintf("can't find block\n");
+	      return false;
+	    }
+	    CBlockIndex* pindexOut = (*mi).second;
+	    heightToVals[pindexOut->nHeight] += txOut->vout[prevout.n].nValue;
+	  }
+	}
+      }
+      pindex->nMatureSat[i] = pindex->pprev->nMatureSat[i-1];
+      for (auto it = heightToVals.begin(); it != heightToVals.end(); ++it) { // subtract the spent inputs of this block                             
+        int nHeight = it->first;
+        CAmount nValue = it->second;
+        LogPrintf("heightToVals %d %llu\n",nHeight,nValue);
+	if (pindex->nHeight > nHeight+COINBASE_MATURITY) {
+	  pindex->nMatureSat[nHeightState] -= nValue;
+	}
+      }
+      CAmount nMatured = 0;
+      int nHeightMatured = i - COINBASE_MATURITY;
+      if (i > COINBASE_MATURITY && nBlocks > nHeightMatured) { // add the matured outputs 
+        CBlockIndex * pindexMatured = pindex->GetAncestor(nHeightMatured);
+        nMatured = pindexMatured->nGenerated;
+        if (nMatured <= 0) {
+          LogPrintf("nMatured<=0\n");
+        }
+        else {
+          LogPrintf("nMatured = %llu\n",nMatured);
+        }
+	pindex->nMatureSat[i] += nMatured;
+      }
+    }
+    return true;
+  }
+  
+  for (unsigned int i=1; i<=nBlocks; i++) {
+    
+    LogPrintf("i=%u\n",i);
+    CBlockIndex * pindexCur = 0;
+    if (chainActive.Height()<i) {
+      pindexCur = pindex->GetAncestor(i);
+    }
+    else {
+      pindexCur = chainActive[i];
+    }
+    CBlock block;
+    std::unordered_map<int,CAmount> heightToVals;
+    if (ReadBlockFromDisk(block, pindexCur, params)) {
+      unsigned int nTxs = block.vtx.size();
+      for (unsigned int j=0; j<nTxs; j++) {
+	//LogPrintf("tx j=%u\n",j);
+	const CTransaction tx = *(block.vtx[j]);
+	CAmount valueOut = tx.GetValueOut();
+	pindexCur->nGenerated += valueOut;
+	if (tx.IsCoinBase())
+	  continue;
+	const CCoins * coins = 0;
+	for (size_t k = 0; k < tx.vin.size(); k++) {
+	  COutPoint prevout = tx.vin[k].prevout;
+	  //coins = view.AccessCoins(prevout.hash);
+	  CTransactionRef txOut;
+	  uint256 hashBlock;
+	  if (!GetTransaction(prevout.hash,txOut,params,hashBlock)) {
+	    LogPrintf("can't find transaction %s\n",prevout.hash.GetHex().c_str());
+	    return false;
+	  }
+	  BlockMap::iterator mi = mapBlockIndex.find(hashBlock);
+	  if (mi == mapBlockIndex.end()) {
+	    LogPrintf("can't find block\n");
+	    return false;
+	  }
+	  CBlockIndex* pindexOut = (*mi).second;
+	  heightToVals[pindexOut->nHeight] += txOut->vout[prevout.n].nValue;
+	}
+      }
+      for (auto it = heightToVals.begin(); it != heightToVals.end(); ++it) {
+	int nHeight = it->first;
+	CAmount nValue = it->second;
+	//LogPrintf("heightToVals %d %llu\n",nHeight,nValue);
+	if (!UpdateMatureUTXOSat(pindexCur,nHeight,nValue))
+	  return false;
+      }
+      CAmount nMatured = 0;
+      if (i > COINBASE_MATURITY) {
+	int nHeightMatured = i - COINBASE_MATURITY;
+	CBlockIndex * pindexMatured = pindexCur->GetAncestor(nHeightMatured);
+	nMatured = pindexMatured->nGenerated;
+	CBlockIndex * pindexCurCur = pindexCur;
+	//LogPrintf("nHeightMatured = %d\n",nHeightMatured);
+	do {
+	  pindexCurCur->nMatureSat[nHeightState] += nMatured;
+	  pindexCurCur = pindexCurCur->pprev;
+	} while (pindexCurCur->nHeight > nHeightMatured);
+      }
+    }
+    else {
+      LogPrintf("can't read block from disk\n");
+      return false;
+    }
+  }
+
+  /*  CAmount nAccumulatedSat = 0;
+  for (unsigned int i=1; i<nBlocks; i++) {
+    LogPrintf("second i=%u\n",i);
+    CBlockIndex * pindexCur = 0;
+    if (chainActive.Height()<i) {
+      pindexCur = pindex->GetAncestor(i);
+    }
+    else {
+      pindexCur = chainActive[i];
+    }
+    CBlock block;
+    if (ReadBlockFromDisk(block, pindexCur, params)) {
+      unsigned int nTxs = block.vtx.size();
+      CAmount nGoodSatOld = 0;
+      CAmount nGoodSat = 0;
+      for (unsigned int j=0; j<nTxs; j++) {
+	const CTransaction tx = *(block.vtx[j]);
+	if (tx.IsCoinBase() && nHeightState-i> COINBASE_MATURITY) {
+	  nGoodSat += tx.GetValueOut();
+	}
+	else {
+	  if (view.HaveInputs(tx)) {
+	    nGoodSat += view.GetValueIn(tx);
+	  }
+	}
+      }
+      //pindexCur->nMatureUTXOSatBlock[nHeightState] = nGoodSat;
+      CAmount satDiff = nGoodSat - nGoodSatOld;
+      pindexCur->nMatureUTXOSat[nHeightState] += satDiff + nAccumulatedSat;
+      nAccumulatedSat += satDiff;
+      //LogPrintf("nGoodSatOld %llu nGoodSat %llu nAccumulatedSat %llu\n",nGoodSatOld,nGoodSat,nAccumulatedSat);
+    }
+    else {
+      return false;
+    }
+    }*/
+  //pindex->nMatureUTXOSat[nHeightState] = pindex->pprev->nMatureUTXOSat[nHeightState];
+  return true;
+}
+
+bool UpdateMatureUTXOSat(CBlockIndex * pindex, int nHeight, CAmount nValue) {
+  int nHeightState = pindex->nHeight;
+  if (nValue < 0)
+    LogPrintf("nValue<0\n");
+  CBlockIndex * pindexCur = pindex;
+  while (pindexCur->nHeight > nHeight) {
+    if (pindexCur->nHeight > nHeight+COINBASE_MATURITY) {
+      pindexCur->nMatureSat[nHeightState] -= nValue;
+    }
+    pindexCur = pindexCur->pprev;
+  }
+  if (pindexCur->nHeight == nHeight) {
+    pindexCur->nGenerated -= nValue;
+  }
+  return true;
+}
+
+bool EnforceProofOfStake (const CBlockIndex * pindexPrev, const Consensus::Params& params) {
+  if ((VersionBitsState(pindexPrev, params, Consensus::DEPLOYMENT_POS, versionbitscache) == THRESHOLD_ACTIVE) && (VersionBitsState(pindexPrev, params, Consensus::DEPLOYMENT_SEGWIT, versionbitscache) == THRESHOLD_ACTIVE))
+    return true;
+  //if (pindexPrev->nHeight >= 602435)
+  //return true;
+  return false;
+}
+
+bool SendMoneyAlt (const CTxDestination &address, CAmount nValue, bool fSubtractFeeFromAmount, CWalletTx& wtxNew) {
+  CAmount curBalance = pwalletMain->GetBalance();
+  if (nValue <= 0) {
+    LogPrintf("Invalid amount");
+    return false;
+  }
+  if (nValue > curBalance) {
+    LogPrintf("Insufficient funds");
+    return false;
+  }
+  if (pwalletMain->GetBroadcastTransactions() && !g_connman) {
+    LogPrintf("Error: Peer-to-peer functionality missing or disabled");
+    return false;
+  }
+  CScript scriptPubKey = GetScriptForDestination(address);
+  CReserveKey reservekey(pwalletMain);
+  CAmount nFeeRequired;
+  std::string strError;
+  std::vector<CRecipient> vecSend;
+  int nChangePosRet = -1;
+  CRecipient recipient = {scriptPubKey, nValue, fSubtractFeeFromAmount};
+  vecSend.push_back(recipient);
+  if (!pwalletMain->CreateTransaction(vecSend, wtxNew, reservekey, nFeeRequired, nChangePosRet, strError)) {
+    LogPrintf("failed to create transaction: %s\n",strError.c_str());
+    if (!fSubtractFeeFromAmount && nValue + nFeeRequired > curBalance) {
+      LogPrintf("This transaction requires a transaction fee of at least %s\n",FormatMoney(nFeeRequired));
+    }
+    return false;
+  }
+  CValidationState state;
+  if (!pwalletMain->CommitTransaction(wtxNew, reservekey, g_connman.get(), state)) {
+    LogPrintf("The transaction was rejected! Reason given: %s\n",state.GetRejectReason());
+    return false;
+  }
+  return true;
+}
+
 bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pindex,
                   CCoinsViewCache& view, const CChainParams& chainparams, bool fJustCheck)
 {
@@ -1753,9 +2012,11 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
     // Special case for the genesis block, skipping connection of its transactions
     // (its coinbase is unspendable)
     if (block.GetHash() == chainparams.GetConsensus().hashGenesisBlock) {
-        if (!fJustCheck)
-            view.SetBestBlock(pindex->GetBlockHash());
-        return true;
+      if (!fJustCheck) {
+	pindex->nMoneySupply = 20000000000;
+	view.SetBestBlock(pindex->GetBlockHash());
+      }
+      return true;
     }
 
     bool fScriptChecks = true;
@@ -1859,6 +2120,8 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
     CCheckQueueControl<CScriptCheck> control(fScriptChecks && nScriptCheckThreads ? &scriptcheckqueue : NULL);
 
     std::vector<int> prevheights;
+    std::unordered_map<int,CAmount> heightToVals;
+    CAmount utxosatReduction;
     CAmount nFees = 0;
     int nInputs = 0;
     int64_t nSigOpsCost = 0;
@@ -1868,6 +2131,7 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
     blockundo.vtxundo.reserve(block.vtx.size() - 1);
     std::vector<PrecomputedTransactionData> txdata;
     txdata.reserve(block.vtx.size()); // Required so that pointers to individual PrecomputedTransactionData don't get invalidated
+    pindex->nGenerated = 0;
     for (unsigned int i = 0; i < block.vtx.size(); i++)
     {
         const CTransaction &tx = *(block.vtx[i]);
@@ -1883,9 +2147,14 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
             // Check that transaction is BIP68 final
             // BIP68 lock checks (as opposed to nLockTime checks) must
             // be in ConnectBlock because they require the UTXO set
-            prevheights.resize(tx.vin.size());
-            for (size_t j = 0; j < tx.vin.size(); j++) {
-                prevheights[j] = view.AccessCoins(tx.vin[j].prevout.hash)->nHeight;
+	    unsigned int vin_size = tx.vin.size();
+            prevheights.resize(vin_size);
+	    const CCoins * coins = 0;
+            for (size_t j = 0; j < vin_size; j++) {
+	      COutPoint prevout = tx.vin[j].prevout;
+	      coins = view.AccessCoins(prevout.hash);
+	      prevheights[j] = coins->nHeight;
+	      heightToVals[coins->nHeight] += coins->vout[prevout.n].nValue;
             }
 
             if (!SequenceLocks(tx, nLockTimeFlags, &prevheights, *pindex)) {
@@ -1904,16 +2173,19 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
                              REJECT_INVALID, "bad-blk-sigops");
 
         txdata.emplace_back(tx);
+	CAmount valueOut = tx.GetValueOut();
+	pindex->nGenerated += valueOut;
         if (!tx.IsCoinBase())
         {
-            nFees += view.GetValueIn(tx)-tx.GetValueOut();
-
-            std::vector<CScriptCheck> vChecks;
-            bool fCacheResults = fJustCheck; /* Don't cache results if we're actually connecting blocks (still consult the cache, though) */
-            if (!CheckInputs(tx, state, view, fScriptChecks, flags, fCacheResults, txdata[i], nScriptCheckThreads ? &vChecks : NULL))
-                return error("ConnectBlock(): CheckInputs on %s failed with %s",
-                    tx.GetHash().ToString(), FormatStateMessage(state));
-            control.Add(vChecks);
+	  CAmount valueIn = view.GetValueIn(tx);
+	  nFees += valueIn-valueOut;
+	  
+	  std::vector<CScriptCheck> vChecks;
+	  bool fCacheResults = fJustCheck; /* Don't cache results if we're actually connecting blocks (still consult the cache, though) */
+	  if (!CheckInputs(tx, state, view, fScriptChecks, flags, fCacheResults, txdata[i], nScriptCheckThreads ? &vChecks : NULL))
+	    return error("ConnectBlock(): CheckInputs on %s failed with %s",
+			 tx.GetHash().ToString(), FormatStateMessage(state));
+	  control.Add(vChecks);
         }
 
         CTxUndo undoDummy;
@@ -1943,6 +2215,149 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
     if (fJustCheck)
         return true;
 
+    // Update Money Supply
+    pindex->nMoneySupply = pindex->pprev->nMoneySupply + block.vtx[0]->GetValueOut() - nFees;
+
+    // Update Mature Satoshis
+
+    int nHeightState = pindex->nHeight;
+    
+    int nHeightCP = chainparams.GetConsensus().nHeightCP;
+    int nHeightLastAnomaly = chainparams.GetConsensus().nHeightLastAnomaly;
+    
+    if (fCheckpointsEnabled && nHeightState <= nHeightCP && nHeightState > nHeightLastAnomaly ) { // speed things up with checkpoints
+      if (nHeightState < 222100) {
+	pindex->nGenerated = 20000000000;
+	pindex->nMatureSat[nHeightCP] = (nHeightState-100)*20000000000;
+      }
+      else if (nHeightState < 444100) {
+	pindex->nGenerated = 10000000000;
+	CAmount part1 = (222099-100)*20000000000;
+	pindex->nMatureSat[nHeightCP] = part1+(nHeightState-222099)*10000000000;
+      }
+      else {
+	pindex->nGenerated = 5000000000;
+	CAmount part1 = (222099-100)*20000000000;
+	CAmount part2 = (444099-222099)*10000000000;
+	pindex->nMatureSat[nHeightCP] = part1+part2+(nHeightState-444099)*5000000000;
+      }
+      LogPrintf("(nHeightCP) height %d nMatureSat %llu nGenerated %llu nMoneySupply %llu\n",nHeightCP,pindex->nMatureSat[nHeightCP],pindex->nGenerated,pindex->nMoneySupply);
+    }
+    else {
+      if (nHeightState == nHeightCP+1) {
+	CBlockIndex * pindexCur = pindex->GetAncestor(nHeightLastAnomaly);
+	while (pindexCur) {
+	  pindexCur->nMatureSat[nHeightCP] = pindexCur->nMatureSat[nHeightLastAnomaly];
+	  pindexCur = pindexCur->pprev;
+	}
+      }
+      CBlockIndex * pindexCur = pindex->pprev;
+      while (pindexCur) { // continue from the previous block
+	if (pindexCur->nHeight < nHeightState-12 && pindexCur->nMatureSat.size()>12) { // erase data that is 2 hours deep in the chain
+	  auto it = pindexCur->nMatureSat.end();
+	  std::advance(it,-12);
+	  //LogPrintf("erase height %d blockindex nMatureUTXOSat from %d to %d\n",pindexCur->nHeight,pindexCur->nMatureUTXOSat.begin()->first,it->first);
+	  pindexCur->nMatureSat.erase(pindexCur->nMatureSat.begin(),it);
+	}
+	auto it = pindexCur->nMatureSat.find(nHeightState-1);
+	if (it == pindexCur->nMatureSat.end()) { // recalculate if not there
+	  LogPrintf("for pindexCur height %d no mature utxo data for state %d. Map size = %lu\n",pindexCur->nHeight,nHeightState-1,pindexCur->nMatureSat.size());
+	  /*for(auto it = pindexCur->nMatureUTXOSat.begin(); it != pindexCur->nMatureUTXOSat.end(); ++it) {
+	    LogPrintf("(%d)",it->first);
+	  }
+	  LogPrintf("prev map size = %lu prev prev = %lu\n",pindexCur->pprev->nMatureUTXOSat.size(),pindexCur->pprev->pprev->nMatureUTXOSat.size());
+	  for(auto it = pindexCur->pprev->nMatureUTXOSat.begin(); it != pindexCur->pprev->nMatureUTXOSat.end(); ++it) {
+	    LogPrintf("(%d)",it->first);
+	  }
+	  for(auto it = pindexCur->pprev->pprev->nMatureUTXOSat.begin(); it != pindexCur->pprev->pprev->nMatureUTXOSat.end(); ++it) {
+	    LogPrintf("(%d)",it->first);
+	    }*/
+	  if (!ReUpdateMatureUTXOSat(pindexCur,nHeightState-1,view,chainparams.GetConsensus()))
+	    return error("ConnectBlock(): Failed to reupdate mature satoshis from UTXOs");
+	}
+	pindexCur->nMatureSat[nHeightState] = pindexCur->nMatureSat[nHeightState-1];
+	pindexCur = pindexCur->pprev;
+      }
+      pindex->nMatureSat[nHeightState] = pindex->pprev->nMatureSat[nHeightState-1];
+      for (auto it = heightToVals.begin(); it != heightToVals.end(); ++it) { // subtract the spent inputs of this block
+	int nHeight = it->first;
+	CAmount nValue = it->second;
+	LogPrintf("heightToVals %d %llu\n",nHeight,nValue);
+	if (!UpdateMatureUTXOSat(pindex,nHeight,nValue))
+	  return error("ConnectBlock(): Failed to update mature satoshis from UTXOs");
+      }
+      CAmount nMatured = 0;
+      if (nHeightState > COINBASE_MATURITY) { // add the matured outputs
+	int nHeightMatured = nHeightState - COINBASE_MATURITY;
+	CBlockIndex * pindexMatured = pindex->GetAncestor(nHeightMatured);
+	nMatured = pindexMatured->nGenerated;
+	if (nMatured <= 0) {
+	  LogPrintf("nMatured<=0\n");
+	}
+	else {
+	  LogPrintf("nMatured = %llu\n",nMatured);
+	}
+	CBlockIndex * pindexCur = pindex;
+	//LogPrintf("nHeightMatured = %d\n",nHeightMatured);
+	do {
+	  pindexCur->nMatureSat[nHeightState] += nMatured;
+	  //LogPrintf("height %d nMatureUTXOSat %llu\n",pindexCur->nHeight,pindexCur->nMatureUTXOSat);
+	  pindexCur = pindexCur->pprev;
+	} while (pindexCur->nHeight > nHeightMatured);
+      }
+    }
+    
+    LogPrintf("height %d nMatureSat %llu nGenerated %llu nMoneySupply %llu\n",nHeightState,pindex->nMatureSat[nHeightState],pindex->nGenerated,pindex->nMoneySupply);
+
+    bool posEnabled = false;
+    bool posEnabledNext = false;
+    if (EnforceProofOfStake(pindex->pprev,chainparams.GetConsensus())) {
+      posEnabled = true;
+      posEnabledNext = true;
+    }
+    else if (EnforceProofOfStake(pindex,chainparams.GetConsensus())) {
+      posEnabledNext = true;
+    }
+    
+    pindex->pblock = &block;
+    if (posEnabled && !CheckProofOfStakeWork(pindex,chainparams.GetConsensus())) {
+      return error("ConnectBlock(): Failed Proof of Stake Work");
+    }
+    pindex->pblock = 0;
+
+    if (posEnabledNext) {
+      pindex->winningAddress = GetWinningAddress(pindex,chainparams.GetConsensus()); // use current block for getting the next winner
+      // See if the wallet owns this address
+      LOCK2(cs_main, pwalletMain->cs_wallet);
+      if (!pwalletMain->IsLocked()) {
+	CKey key;
+	if (pwalletMain->GetKey(pindex->winningAddress, key)) {
+	  LogPrintf("Have winning address in wallet!\n");
+	  CHelperBlock hblock;
+	  hblock.hashPrevBlock = block.GetFullHash();
+	  hblock.paymentAddress = pindex->winningAddress;
+	  hblock.signature = GetHelperSignature(&hblock,key);
+	  /*CTransaction tx;
+	    tx.hblock = hblock;*/
+	  uint256 helperId = SerializeHash(pindex->winningAddress.ToString()+hblock.hashPrevBlock.ToString(),SER_GETHASH,0);
+	  bool fHaveMempool = mempool.exists(helperId);
+
+	  if (!fHaveMempool) {
+	    LogPrintf("add it to mempool\n");
+	    CWalletTx wtx;
+	    CMutableTransaction tx;
+	    tx.hblock = hblock;
+	    LogPrintf("Mutable tx hash = %s\n",tx.GetHash().ToString());
+	    wtx.SetTx(MakeTransactionRef(std::move(tx)));
+	    LogPrintf("wtx.tx hash = %s\n",wtx.tx->GetHash().ToString());
+	    if (SendMoneyAlt(CTcoinAddress(pindex->winningAddress).Get(), DUST_RELAY_TX_FEE*10, false, wtx)) {
+	      LogPrintf("Sent tx with helper block\n");
+	    }
+	  } 
+	}
+      }
+    }
+        
     // Write undo information to disk
     if (pindex->GetUndoPos().IsNull() || !pindex->IsValid(BLOCK_VALID_SCRIPTS))
     {
@@ -2829,7 +3244,7 @@ bool FindUndoPos(CValidationState &state, int nFile, CDiskBlockPos &pos, unsigne
 bool CheckBlockHeader(const CBlockHeader& block, CValidationState& state, const Consensus::Params& consensusParams, bool fCheckPOW)
 {
     // Check proof of work matches claimed amount
-    if (fCheckPOW && !CheckProofOfWork(block.GetPoWHash(), block.nBits, consensusParams))
+  if (fCheckPOW && !CheckProofOfWork(block.GetPoWHash(),block.nBits, consensusParams))
         return state.DoS(50, false, REJECT_INVALID, "high-hash", false, "proof of work failed");
 
     return true;
@@ -2868,8 +3283,11 @@ bool CheckBlock(const CBlock& block, CValidationState& state, const Consensus::P
     // checks that use witness data may be performed here.
 
     // Size limits
-    if (block.vtx.empty() || block.vtx.size() > MAX_BLOCK_BASE_SIZE || ::GetSerializeSize(block, SER_NETWORK, PROTOCOL_VERSION | SERIALIZE_TRANSACTION_NO_WITNESS) > MAX_BLOCK_BASE_SIZE)
-        return state.DoS(100, false, REJECT_INVALID, "bad-blk-length", false, "size limits failed");
+    if (block.vtx.empty() || block.vtx.size() > MAX_BLOCK_BASE_SIZE || ::GetSerializeSize(block, SER_NETWORK, PROTOCOL_VERSION | SERIALIZE_TRANSACTION_NO_WITNESS) > MAX_BLOCK_BASE_SIZE) {
+      LogPrintf("block.vtx.size() = %lu serializesize = %lu\n",block.vtx.size(),::GetSerializeSize(block, SER_NETWORK, PROTOCOL_VERSION | SERIALIZE_TRANSACTI\
+ON_NO_WITNESS));
+      return state.DoS(100, false, REJECT_INVALID, "bad-blk-length", false, "size limits failed");
+    }
 
     // First transaction must be coinbase, the rest must not be
     if (block.vtx.empty() || !block.vtx[0]->IsCoinBase())
@@ -2978,8 +3396,16 @@ bool ContextualCheckBlockHeader(const CBlockHeader& block, CValidationState& sta
 {
     const int nHeight = pindexPrev == NULL ? 0 : pindexPrev->nHeight + 1;
     // Check proof of work
-    if (block.nBits != GetNextWorkRequired(pindexPrev, &block, consensusParams))
-        return state.DoS(100, false, REJECT_INVALID, "bad-diffbits", false, "incorrect proof of work");
+    if (block.nBits != GetNextWorkRequired(pindexPrev, &block, consensusParams)) {
+      bool fNegative;
+      bool fOverflow;
+      arith_uint256 bnNbits;
+      bnNbits.SetCompact(block.nBits, &fNegative, &fOverflow);
+      arith_uint256 bnRequired;
+      bnRequired.SetCompact(GetNextWorkRequired(pindexPrev, &block, consensusParams),&fNegative,&fOverflow);
+      LogPrintf("nBits %s Required %s prevHeight %d hash %s\n",bnNbits.GetHex(),bnRequired.GetHex(),pindexPrev->nHeight,(pindexPrev->GetBlockHash()).GetHex());
+      return state.DoS(100, false, REJECT_INVALID, "bad-diffbits", false, "incorrect proof of work");
+    }
 
     // Check timestamp against prev
     if (block.GetBlockTime() <= pindexPrev->GetMedianTimePast())
@@ -3074,8 +3500,11 @@ bool ContextualCheckBlock(const CBlock& block, CValidationState& state, const Co
     // large by filling up the coinbase witness, which doesn't change
     // the block hash, so we couldn't mark the block as permanently
     // failed).
-    if (GetBlockWeight(block) > MAX_BLOCK_WEIGHT) {
-        return state.DoS(100, false, REJECT_INVALID, "bad-blk-weight", false, strprintf("%s : weight limit failed", __func__));
+    LogPrintf("block.vtx.size() = %u\n",block.vtx.size());
+    int64_t blockWeight = GetBlockWeight(block);
+    if (blockWeight > MAX_BLOCK_WEIGHT) {
+      LogPrintf("blockWeight = %lld\n",blockWeight);
+      return state.DoS(100, false, REJECT_INVALID, "bad-blk-weight", false, strprintf("%s : weight limit failed", __func__));
     }
 
     return true;
@@ -3137,6 +3566,7 @@ bool ProcessNewBlockHeaders(const std::vector<CBlockHeader>& headers, CValidatio
         LOCK(cs_main);
         for (const CBlockHeader& header : headers) {
             CBlockIndex *pindex = NULL; // Use a temp pindex instead of ppindex to avoid a const_cast
+	    LogPrintf("ProcessNewBlockHeaders check acceptblockheader\n");
             if (!AcceptBlockHeader(header, state, chainparams, &pindex)) {
                 return false;
             }
@@ -3243,6 +3673,7 @@ bool ProcessNewBlock(const CChainParams& chainparams, const std::shared_ptr<cons
 
         if (ret) {
             // Store to disk
+	  LogPrintf("do AcceptBlock\n");
             ret = AcceptBlock(pblock, state, chainparams, &pindex, fForceProcessing, NULL, fNewBlock);
         }
         CheckBlockIndex(chainparams.GetConsensus());

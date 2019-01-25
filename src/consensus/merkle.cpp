@@ -43,11 +43,11 @@
 */
 
 /* This implements a constant-space merkle root/path calculator, limited to 2^32 leaves. */
-static void MerkleComputation(const std::vector<uint256>& leaves, uint256* proot, bool* pmutated, uint32_t branchpos, std::vector<uint256>* pbranch) {
+static void MerkleComputation(const std::vector<uint256>& leaves, uint256* proot, bool* pmutated, uint32_t branchpos, std::vector<uint256>* pbranch, bool match = false) {
     if (pbranch) pbranch->clear();
     if (leaves.size() == 0) {
         if (pmutated) *pmutated = false;
-        if (proot) *proot = uint256();
+        if (proot && !match) *proot = uint256();
         return;
     }
     bool mutated = false;
@@ -64,6 +64,7 @@ static void MerkleComputation(const std::vector<uint256>& leaves, uint256* proot
     // First process all leaves into 'inner' values.
     while (count < leaves.size()) {
         uint256 h = leaves[count];
+	if (match && h == *proot) return;
         bool matchh = count == branchpos;
         count++;
         int level;
@@ -81,6 +82,7 @@ static void MerkleComputation(const std::vector<uint256>& leaves, uint256* proot
             }
             mutated |= (inner[level] == h);
             CHash256().Write(inner[level].begin(), 32).Write(h.begin(), 32).Finalize(h.begin());
+	    if (match && h == *proot) return;
         }
         // Store the resulting hash at inner position level.
         inner[level] = h;
@@ -100,6 +102,7 @@ static void MerkleComputation(const std::vector<uint256>& leaves, uint256* proot
     uint256 h = inner[level];
     bool matchh = matchlevel == level;
     while (count != (((uint32_t)1) << level)) {
+      if (match && h == *proot) return;
         // If we reach this point, h is an inner value that is not the top.
         // We combine it with itself (Tcoin's special rule for odd levels in
         // the tree) to produce a higher level one.
@@ -107,6 +110,7 @@ static void MerkleComputation(const std::vector<uint256>& leaves, uint256* proot
             pbranch->push_back(h);
         }
         CHash256().Write(h.begin(), 32).Write(h.begin(), 32).Finalize(h.begin());
+	if (match && h == *proot) return;
         // Increment count to the value it would have if two entries at this
         // level had existed.
         count += (((uint32_t)1) << level);
@@ -122,18 +126,32 @@ static void MerkleComputation(const std::vector<uint256>& leaves, uint256* proot
                 }
             }
             CHash256().Write(inner[level].begin(), 32).Write(h.begin(), 32).Finalize(h.begin());
+	    if (match && h == *proot) return;
             level++;
         }
     }
     // Return result.
     if (pmutated) *pmutated = mutated;
-    if (proot) *proot = h;
+    if (proot) {
+      if (match) { // no match, return the default 0 value
+	*proot = uint256();
+      }
+      else {
+	*proot = h;
+      }
+    }
 }
 
 uint256 ComputeMerkleRoot(const std::vector<uint256>& leaves, bool* mutated) {
     uint256 hash;
     MerkleComputation(leaves, &hash, mutated, -1, NULL);
     return hash;
+}
+
+bool MatchMerkleTree(const std::vector<uint256>& leaves, uint256 hash) {
+  MerkleComputation(leaves, &hash, NULL, -1, NULL,true);
+  if (hash.IsNull()) return false;
+  return true;
 }
 
 std::vector<uint256> ComputeMerkleBranch(const std::vector<uint256>& leaves, uint32_t position) {
@@ -184,4 +202,16 @@ std::vector<uint256> BlockMerkleBranch(const CBlock& block, uint32_t position)
         leaves[s] = block.vtx[s]->GetHash();
     }
     return ComputeMerkleBranch(leaves, position);
+}
+
+bool MatchBlockMerkleTree(const CBlock& block, uint256 hash)
+{
+  if (hash.IsNull()) // trivial case where helper block doesn't require any specific merkle root
+    return true;
+  std::vector<uint256> leaves;
+  leaves.resize(block.vtx.size());
+  for (size_t s = 0; s < block.vtx.size(); s++) {
+    leaves[s] = block.vtx[s]->GetHash();
+  }
+  return MatchMerkleTree(leaves, hash);
 }

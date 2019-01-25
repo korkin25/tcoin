@@ -1638,10 +1638,12 @@ bool CWalletTx::RelayWalletTransaction(CConnman* connman)
         if (InMempool() || AcceptToMemoryPool(maxTxFee, state)) {
             LogPrintf("Relaying wtx %s\n", GetHash().ToString());
             if (connman) {
+	      LogPrintf("have connman\n");
                 CInv inv(MSG_TX, GetHash());
                 connman->ForEachNode([&inv](CNode* pnode)
                 {
-                    pnode->PushInventory(inv);
+		  LogPrintf("push to node\n");
+		  pnode->PushInventory(inv);
                 });
                 return true;
             }
@@ -2396,6 +2398,7 @@ bool CWallet::CreateTransaction(const vector<CRecipient>& vecSend, CWalletTx& wt
     wtxNew.fTimeReceivedIsTxTime = true;
     wtxNew.BindWallet(this);
     CMutableTransaction txNew;
+    txNew.hblock = wtxNew.tx->hblock;
 
     // Discourage fee sniping.
     //

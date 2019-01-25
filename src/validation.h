@@ -473,6 +473,8 @@ bool WriteBlockToDisk(const CBlock& block, CDiskBlockPos& pos, const CMessageHea
 bool ReadBlockFromDisk(CBlock& block, const CDiskBlockPos& pos, const Consensus::Params& consensusParams);
 bool ReadBlockFromDisk(CBlock& block, const CBlockIndex* pindex, const Consensus::Params& consensusParams);
 
+bool ReadHelperBlockFromDisk(CHelperBlock& block, const CBlockIndex* pindex, const Consensus::Params& consensusParams);
+
 /** Functions for validating blocks and updating the block tree */
 
 /** Context-independent validity checks */
@@ -484,6 +486,10 @@ bool CheckBlock(const CBlock& block, CValidationState& state, const Consensus::P
  *  set; UTXO-related validity checks are done in ConnectBlock(). */
 bool ContextualCheckBlockHeader(const CBlockHeader& block, CValidationState& state, const Consensus::Params& consensusParams, const CBlockIndex* pindexPrev, int64_t nAdjustedTime);
 bool ContextualCheckBlock(const CBlock& block, CValidationState& state, const Consensus::Params& consensusParams, const CBlockIndex* pindexPrev);
+
+bool UpdateMatureUTXOSat (CBlockIndex* pindex, int nHeight, CAmount nValue);
+
+bool EnforceProofOfStake (const CBlockIndex* pindexPrev, const Consensus::Params& consensusParams);
 
 /** Apply the effects of this block (with given index) on the UTXO set represented by coins.
  *  Validity checks that depend on the UTXO set are also done; ConnectBlock()
