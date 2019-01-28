@@ -59,7 +59,7 @@ CMutableTransaction::CMutableTransaction(const CTransaction& tx) : nVersion(tx.n
 
 uint256 CMutableTransaction::GetHash() const
 {
-    if (HasHelper()) {
+  if (HasHelper() && !IsCoinBase()) {
       //LogPrintf("CMutableTransaction GetHash HasHelper\n");
       return SerializeHash(this->hblock.paymentAddress.ToString()+this->hblock.hashPrevBlock.ToString(), SER_GETHASH, 0);
     }
@@ -68,7 +68,7 @@ uint256 CMutableTransaction::GetHash() const
 
 uint256 CTransaction::ComputeHash() const
 {
-  if (HasHelper()) {
+  if (HasHelper() && !IsCoinBase()) {
     //LogPrintf("CTransaction ComputeHash HasHelper\n");
     return SerializeHash(this->hblock.paymentAddress.ToString()+this->hblock.hashPrevBlock.ToString(), SER_GETHASH, 0);
   }
