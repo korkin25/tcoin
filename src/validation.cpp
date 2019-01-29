@@ -3491,7 +3491,7 @@ bool ContextualCheckBlock(const CBlock& block, CValidationState& state, const Co
     }
 
     // No witness data is allowed in blocks that don't commit to witness data, as this would otherwise leave room for spam
-    if (!fHaveWitness && !fHaveWitnessActivated) {
+    if (!fHaveWitness && fHaveWitnessActivated) {
         for (size_t i = 0; i < block.vtx.size(); i++) {
             if (block.vtx[i]->HasWitness()) {
                 return state.DoS(100, false, REJECT_INVALID, "unexpected-witness", true, strprintf("%s : unexpected witness data found", __func__));
