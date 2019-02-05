@@ -65,7 +65,12 @@ struct Params {
   int nHeightCP;
   int nHeightLastAnomaly;
   int nHeightMinDiff;
-    int64_t DifficultyAdjustmentInterval() const { return nPowTargetTimespan / nPowTargetSpacing; }
+  int64_t DifficultyAdjustmentInterval(bool fork=false) const {
+    if (fork)
+      return nPowTargetTimespan / nPowTargetSpacing / 14;
+    return nPowTargetTimespan / nPowTargetSpacing;
+  }
+  int64_t DifficultyAdjustmentIntervalFork() const { return nPowTargetTimespan / nPowTargetSpacing / 14; }
     uint256 nMinimumChainWork;
     uint256 defaultAssumeValid;
 };

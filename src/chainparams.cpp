@@ -78,11 +78,11 @@ public:
         consensus.powLimit = uint256S("00000fffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
         consensus.nPowTargetTimespan = 14 * 24 * 60 * 60; // two weeks
         consensus.nPowTargetSpacing = 10 * 60;
-        consensus.fPowAllowMinDifficultyBlocks = false; // switch to true for testing forks
-	consensus.nHeightMinDiff = 602433;
+        consensus.fPowAllowMinDifficultyBlocks = true; // switch to true for testing forks
+	consensus.nHeightMinDiff = 602641;
         consensus.fPowNoRetargeting = false;
-        consensus.nRuleChangeActivationThreshold = 75; // 75% of 100
-        consensus.nMinerConfirmationWindow = 100; // nPowTargetTimespan / nPowTargetSpacing
+        consensus.nRuleChangeActivationThreshold = 8; // 80% of 10
+        consensus.nMinerConfirmationWindow = 10; // nPowTargetTimespan / nPowTargetSpacing
 	consensus.nPosLookback = 7104000; // 32 periods ~ 128 years
 	consensus.nHeightCP = 532800; // 80% premine
 	consensus.nHeightLastAnomaly = 135995; // last non standard block before premine + 99

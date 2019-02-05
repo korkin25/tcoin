@@ -28,7 +28,9 @@ unsigned int GetNextWorkRequired(const CBlockIndex* pindexLast, const CBlockHead
     }
 
     // Only change once per difficulty adjustment interval
-    if ((pindexLast->nHeight+1) % params.DifficultyAdjustmentInterval() != 0)
+    bool fork = EnforceProofOfStake(pindexLast,params);
+    bool forkPrev = EnforceProofOfStake(pindexLast->pprev,params);
+    if ((pindexLast->nHeight+1) % params.DifficultyAdjustmentInterval(fork) != 0)
     {
         if (params.fPowAllowMinDifficultyBlocks)
         {
@@ -41,20 +43,24 @@ unsigned int GetNextWorkRequired(const CBlockIndex* pindexLast, const CBlockHead
             {
                 // Return the last non-special-min-difficulty-rules-block
                 const CBlockIndex* pindex = pindexLast;
-                while (pindex->pprev && pindex->nHeight % params.DifficultyAdjustmentInterval() != 0 && pindex->nBits == nProofOfWorkLimit)
+                while (pindex->pprev && pindex->nHeight % params.DifficultyAdjustmentInterval(fork) != 0 && pindex->nBits == nProofOfWorkLimit)
                     pindex = pindex->pprev;
                 return pindex->nBits;
             }
         }
-        return pindexLast->nBits;
+	if (!fork || forkPrev)
+	  return pindexLast->nBits;
     }
 
     // Go back by what we want to be 14 days worth of blocks
-    int nHeightFirst = pindexLast->nHeight - (params.DifficultyAdjustmentInterval()-1);
+    int nHeightFirst = pindexLast->nHeight - (params.DifficultyAdjustmentInterval(fork)-1);
     assert(nHeightFirst >= 0);
     const CBlockIndex* pindexFirst = pindexLast->GetAncestor(nHeightFirst);
     assert(pindexFirst);
 
+    int64_t nFirstBlockTime =  pindexFirst->GetBlockTime();
+    if (fork)
+      nFirstBlockTime =  pindexFirst->GetMedianTimePast();
     return CalculateNextWorkRequired(pindexLast, pindexFirst->GetBlockTime(), params);
 }
 
@@ -65,10 +71,19 @@ unsigned int CalculateNextWorkRequired(const CBlockIndex* pindexLast, int64_t nF
 
     // Limit adjustment step
     int64_t nActualTimespan = pindexLast->GetBlockTime() - nFirstBlockTime;
-    if (nActualTimespan < params.nPowTargetTimespan/4)
+    if (fork)
+      nActualTimespan = pindexLast->GetMedianTimePast() - nFirstBlockTime;
+    int64_t targetTimespan = params.nPowTargetTimespan;
+    bool fork = EnforceProofOfStake(pindexLast,params);
+    bool forkPrev = EnforceProofOfStake(pindexLast->pprev,params);
+    if (fork)
+	targetTimespan /= 14;
+    if (nActualTimespan < params.nPowTargetTimespan/4 && (!fork || forkPrev))
         nActualTimespan = params.nPowTargetTimespan/4;
-    if (nActualTimespan > params.nPowTargetTimespan*4)
+    if (nActualTimespan > params.nPowTargetTimespan*4 && (!fork || forkPrev))
         nActualTimespan = params.nPowTargetTimespan*4;
+    if (nActualTimespan <= 0)
+      nActualTimespan = params.nPowTargetTimespan/4;
 
     // Retarget
     const arith_uint256 bnPowLimit = UintToArith256(params.powLimit);
