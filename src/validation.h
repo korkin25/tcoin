@@ -582,4 +582,6 @@ void DumpMempool();
 /** Load the mempool from disk. */
 bool LoadMempool();
 
+bool DisconnectTip(CValidationState& state, const CChainParams& chainparams, bool fBare = false);
+
 #endif // TCOIN_VALIDATION_H

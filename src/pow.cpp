@@ -17,6 +17,7 @@
 
 unsigned int GetNextWorkRequired(const CBlockIndex* pindexLast, const CBlockHeader *pblock, const Consensus::Params& params)
 {
+  LogPrintf("getnextworkrequired: %d\n",pindexLast->nHeight);
     unsigned int nProofOfWorkLimit = UintToArith256(params.powLimit).GetCompact();
 
     // Genesis block
@@ -34,18 +35,21 @@ unsigned int GetNextWorkRequired(const CBlockIndex* pindexLast, const CBlockHead
     {
         if (params.fPowAllowMinDifficultyBlocks)
         {
+	  LogPrintf("allowmindiff\n");
             // Special difficulty rule for testnet:
             // If the new block's timestamp is more than 2* 10 minutes
             // then allow mining of a min-difficulty block.
-	  if (pblock->GetBlockTime() > pindexLast->GetBlockTime() + params.nPowTargetSpacing*2 && pindexLast->nHeight >= params.nHeightMinDiff)
-                return UintToArith256(uint256S("7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")).GetCompact();
-            else
+	  if (pblock->GetBlockTime() > pindexLast->GetBlockTime() + params.nPowTargetSpacing*2 && pindexLast->nHeight >= params.nHeightMinDiff) {
+	    LogPrintf("min diff block time and height met\n");
+	    return UintToArith256(uint256S("7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")).GetCompact();
+	  }
+	  else
             {
-                // Return the last non-special-min-difficulty-rules-block
-                const CBlockIndex* pindex = pindexLast;
-                while (pindex->pprev && pindex->nHeight % params.DifficultyAdjustmentInterval(fork) != 0 && pindex->nBits == nProofOfWorkLimit)
-                    pindex = pindex->pprev;
-                return pindex->nBits;
+	      // Return the last non-special-min-difficulty-rules-block
+	      const CBlockIndex* pindex = pindexLast;
+	      while (pindex->pprev && pindex->nHeight % params.DifficultyAdjustmentInterval(fork) != 0 && pindex->nBits == nProofOfWorkLimit)
+		pindex = pindex->pprev;
+	      return pindex->nBits;
             }
         }
 	if (!fork || forkPrev)
@@ -149,26 +153,19 @@ CKeyID GetWinningAddress (const CBlockIndex* pindex, const Consensus::Params& pa
   int nHeight = pindex->nHeight;
   if (nHeight > params.nPosLookback)
     startBlock += nHeight-params.nPosLookback;
-  const CBlockIndex * pindexStart = 0;
-  if (chainActive.Height() < startBlock-1) {
-    pindexStart = pindex->GetAncestor(startBlock-1);
-  }
-  else {
-    pindexStart = chainActive[startBlock-1];
-  }
 
-  uint64_t moneySupplyUsed = pindex->nMatureSat.at(nHeight) - pindexStart->nMatureSat.at(nHeight);
+  uint64_t moneySupplyUsed = pindex->nMatureSat.at(nHeight) - pindex->nMatureSat.at(startBlock-1);
   arith_uint256 hashBlock = UintToArith256(pindex->GetBlockHash());
   arith_uint256 quotient = hashBlock / moneySupplyUsed;
   arith_uint256 subtractor = moneySupplyUsed*quotient;
   uint64_t winningSat = (hashBlock-subtractor).GetLow64();
   
   uint64_t winningBlockNumber = 0; // number representing the amount of supply created up to that block
-  unsigned int winningBlockHeight = 0; // the block number / height
+  int winningBlockHeight = -1; // the block number / height
   const CBlockIndex * pindexWin = 0;
   for (int i=startBlock; i<=nHeight; i++) {
-    const CBlockIndex * pindexCur = 0;
-    if (i==nHeight) {
+    //const CBlockIndex * pindexCur = 0;
+    /*if (i==nHeight) {
       pindexCur = pindex;
     }
     else if (chainActive.Height() > startBlock-2) {
@@ -176,18 +173,16 @@ CKeyID GetWinningAddress (const CBlockIndex* pindex, const Consensus::Params& pa
     }
     else {
       pindexCur = pindex->GetAncestor(i);
-    }
-    if (pindexCur->nMatureSat.at(nHeight) - pindexStart->nMatureSat.at(nHeight) > winningSat) {
+      }*/
+    if (pindex->nMatureSat.at(i) - pindex->nMatureSat.at(startBlock-1) > winningSat) {
       //LogPrintf("have pindexWin\n");
-      pindexWin = pindexCur->pprev;
+      pindexWin = pindex->GetAncestor(i-1);
+      winningBlockNumber = pindex->nMatureSat.at(i-1) - pindex->nMatureSat.at(startBlock-1);
+      winningBlockHeight = i-1;
       break;
     }
   }
-  if (pindexWin) {
-    winningBlockNumber = pindexWin->nMatureSat.at(nHeight) - pindexStart->nMatureSat.at(nHeight);
-    winningBlockHeight = pindexWin->nHeight;
-  }
-  else {
+  if (!pindexWin) {
     LogPrintf("can't find winning block\n");
     return CKeyID();
   }

@@ -200,7 +200,7 @@ public:
   std::map<int,uint64_t> nMatureSat;
 
     //! The sum of outputs for the block (not just coinbase)
-    uint64_t nGenerated;
+  std::map<int,uint64_t> nGenerated;
 
   //! (memory only)
   const CBlock* pblock;
@@ -239,7 +239,7 @@ public:
         nStatus = 0;
 	nMoneySupply = 0;
 	nMatureSat.clear();
-	nGenerated = 0;
+	nGenerated.clear();
         nSequenceId = 0;
         nTimeMax = 0;
 	pblock = 0;
@@ -408,7 +408,7 @@ public:
             READWRITE(VARINT(nUndoPos));
 	READWRITE(VARINT(nMoneySupply));
 	READWRITE(nMatureSat);
-	READWRITE(VARINT(nGenerated));
+	READWRITE(nGenerated);
 
         // block header
         READWRITE(this->nVersion);

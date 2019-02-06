@@ -1758,13 +1758,14 @@ bool ReUpdateMatureUTXOSat(CBlockIndex * pindex, int nHeightState, CCoinsViewCac
   int nBlocks = pindex->nHeight;
   if (nBlocks == 0) {
     pindex->nMatureSat[nHeightState] = 0;
+    pindex->nGenerated[nHeightState] = 0;
     return true;
   }
 
   LogPrintf("please restart client with the \"-reindex\" option"); // tmp until well tested
   return false;
 
-  // Get highest state for the index;
+  /*  // Get highest state for the index;
   int maxState = 0;
   for (auto it = pindex->nMatureSat.begin(); it != pindex->nMatureSat.end(); ++it) {
     if (it->first > maxState)
@@ -1827,6 +1828,9 @@ bool ReUpdateMatureUTXOSat(CBlockIndex * pindex, int nHeightState, CCoinsViewCac
     }
     return true;
   }
+
+  //LogPrintf("please restart client with the \"-reindex\" option"); // tmp until well tested
+  //return false;
   
   for (unsigned int i=1; i<=nBlocks; i++) {
     
@@ -1894,7 +1898,7 @@ bool ReUpdateMatureUTXOSat(CBlockIndex * pindex, int nHeightState, CCoinsViewCac
     }
   }
 
-  /*  CAmount nAccumulatedSat = 0;
+  CAmount nAccumulatedSat = 0;
   for (unsigned int i=1; i<nBlocks; i++) {
     LogPrintf("second i=%u\n",i);
     CBlockIndex * pindexCur = 0;
@@ -1929,8 +1933,9 @@ bool ReUpdateMatureUTXOSat(CBlockIndex * pindex, int nHeightState, CCoinsViewCac
     else {
       return false;
     }
-    }*/
-  //pindex->nMatureUTXOSat[nHeightState] = pindex->pprev->nMatureUTXOSat[nHeightState];
+    }
+    //pindex->nMatureUTXOSat[nHeightState] = pindex->pprev->nMatureUTXOSat[nHeightState];*/
+  
   return true;
 }
 
@@ -1938,15 +1943,15 @@ bool UpdateMatureUTXOSat(CBlockIndex * pindex, int nHeight, CAmount nValue) {
   int nHeightState = pindex->nHeight;
   if (nValue < 0)
     LogPrintf("nValue<0\n");
-  CBlockIndex * pindexCur = pindex;
-  while (pindexCur->nHeight > nHeight) {
-    if (pindexCur->nHeight > nHeight+COINBASE_MATURITY) {
-      pindexCur->nMatureSat[nHeightState] -= nValue;
+  int nHeightCur = nHeightState;
+  while (nHeightCur > nHeight) {
+    if (nHeightCur > nHeight+COINBASE_MATURITY) {
+      pindex->nMatureSat[nHeightCur] -= nValue;
     }
-    pindexCur = pindexCur->pprev;
+    nHeightCur--;
   }
-  if (pindexCur->nHeight == nHeight) {
-    pindexCur->nGenerated -= nValue;
+  if (nHeightCur == nHeight) {
+    pindex->nGenerated[nHeightCur] -= nValue;
   }
   return true;
 }
@@ -2124,7 +2129,7 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
 
     std::vector<int> prevheights;
     std::unordered_map<int,CAmount> heightToVals;
-    CAmount utxosatReduction;
+    //CAmount utxosatReduction;
     CAmount nFees = 0;
     int nInputs = 0;
     int64_t nSigOpsCost = 0;
@@ -2134,7 +2139,7 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
     blockundo.vtxundo.reserve(block.vtx.size() - 1);
     std::vector<PrecomputedTransactionData> txdata;
     txdata.reserve(block.vtx.size()); // Required so that pointers to individual PrecomputedTransactionData don't get invalidated
-    pindex->nGenerated = 0;
+    pindex->nGenerated[pindex->nHeight] = 0;
     for (unsigned int i = 0; i < block.vtx.size(); i++)
     {
         const CTransaction &tx = *(block.vtx[i]);
@@ -2177,7 +2182,7 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
 
         txdata.emplace_back(tx);
 	CAmount valueOut = tx.GetValueOut();
-	pindex->nGenerated += valueOut;
+	pindex->nGenerated[pindex->nHeight] += valueOut;
         if (!tx.IsCoinBase())
         {
 	  CAmount valueIn = view.GetValueIn(tx);
@@ -2230,58 +2235,59 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
     
     if (fCheckpointsEnabled && nHeightState <= nHeightCP && nHeightState > nHeightLastAnomaly ) { // speed things up with checkpoints
       if (nHeightState < 222100) {
-	pindex->nGenerated = 20000000000;
-	pindex->nMatureSat[nHeightCP] = (nHeightState-100)*20000000000;
+	pindex->nGenerated[nHeightState] = 20000000000;
+	pindex->nMatureSat[nHeightState] = (nHeightState-100)*20000000000;
       }
       else if (nHeightState < 444100) {
-	pindex->nGenerated = 10000000000;
+	pindex->nGenerated[nHeightState] = 10000000000;
 	CAmount part1 = (222099-100)*20000000000;
-	pindex->nMatureSat[nHeightCP] = part1+(nHeightState-222099)*10000000000;
+	pindex->nMatureSat[nHeightState] = part1+(nHeightState-222099)*10000000000;
       }
       else {
-	pindex->nGenerated = 5000000000;
+	pindex->nGenerated[nHeightState] = 5000000000;
 	CAmount part1 = (222099-100)*20000000000;
 	CAmount part2 = (444099-222099)*10000000000;
-	pindex->nMatureSat[nHeightCP] = part1+part2+(nHeightState-444099)*5000000000;
+	pindex->nMatureSat[nHeightState] = part1+part2+(nHeightState-444099)*5000000000;
       }
-      LogPrintf("(nHeightCP) height %d nMatureSat %llu nGenerated %llu nMoneySupply %llu\n",nHeightCP,pindex->nMatureSat[nHeightCP],pindex->nGenerated,pindex->nMoneySupply);
+      LogPrintf("(nHeightCP) height %d nMatureSat %llu nGenerated %llu nMoneySupply %llu\n",nHeightCP,pindex->nMatureSat[nHeightCP],pindex->nGenerated[nHeightState],pindex->nMoneySupply);
     }
     else {
       if (nHeightState == nHeightCP+1) {
-	CBlockIndex * pindexCur = pindex->GetAncestor(nHeightLastAnomaly);
+	//CBlockIndex * pindexCur = pindex->GetAncestor(nHeightLastAnomaly);
+	CBlockIndex* pindexCur = pindex->pprev->pprev;
+	CBlockIndex* pindexLastAnomaly = pindex->GetAncestor(nHeightLastAnomaly);
 	while (pindexCur) {
-	  pindexCur->nMatureSat[nHeightCP] = pindexCur->nMatureSat[nHeightLastAnomaly];
+	  if (pindexCur->nHeight>nHeightLastAnomaly) {
+	    pindex->pprev->nMatureSat[pindexCur->nHeight] = pindexCur->nMatureSat[pindexCur->nHeight];
+	    pindex->pprev->nGenerated[pindexCur->nHeight] = pindexCur->nGenerated[pindexCur->nHeight];
+	  }
+	  else {
+	    pindex->pprev->nMatureSat[pindexCur->nHeight] = pindexLastAnomaly->nMatureSat[pindexCur->nHeight];
+	    pindex->pprev->nGenerated[pindexCur->nHeight] = pindexLastAnomaly->nGenerated[pindexCur->nHeight];
+	  }
 	  pindexCur = pindexCur->pprev;
 	}
       }
-      CBlockIndex * pindexCur = pindex->pprev;
-      while (pindexCur) { // continue from the previous block
-	if (pindexCur->nHeight < nHeightState-12 && pindexCur->nMatureSat.size()>12) { // erase data that is 2 hours deep in the chain
-	  auto it = pindexCur->nMatureSat.end();
-	  std::advance(it,-12);
-	  //LogPrintf("erase height %d blockindex nMatureUTXOSat from %d to %d\n",pindexCur->nHeight,pindexCur->nMatureUTXOSat.begin()->first,it->first);
-	  pindexCur->nMatureSat.erase(pindexCur->nMatureSat.begin(),it);
+      int nHeightCur = pindex->pprev->nHeight;
+      while (nHeightCur>=0) { // continue from the previous block
+	if (nHeightCur == nHeightState-12) { // erase data that is 2 hours deep in the chain
+	  CBlockIndex* pindexCur = pindex->GetAncestor(nHeightCur);
+	  pindexCur->nMatureSat.clear();
+	  pindexCur->nGenerated.clear();
 	}
-	auto it = pindexCur->nMatureSat.find(nHeightState-1);
-	if (it == pindexCur->nMatureSat.end()) { // recalculate if not there
-	  LogPrintf("for pindexCur height %d no mature utxo data for state %d. Map size = %lu\n",pindexCur->nHeight,nHeightState-1,pindexCur->nMatureSat.size());
-	  /*for(auto it = pindexCur->nMatureUTXOSat.begin(); it != pindexCur->nMatureUTXOSat.end(); ++it) {
-	    LogPrintf("(%d)",it->first);
-	  }
-	  LogPrintf("prev map size = %lu prev prev = %lu\n",pindexCur->pprev->nMatureUTXOSat.size(),pindexCur->pprev->pprev->nMatureUTXOSat.size());
-	  for(auto it = pindexCur->pprev->nMatureUTXOSat.begin(); it != pindexCur->pprev->nMatureUTXOSat.end(); ++it) {
-	    LogPrintf("(%d)",it->first);
-	  }
-	  for(auto it = pindexCur->pprev->pprev->nMatureUTXOSat.begin(); it != pindexCur->pprev->pprev->nMatureUTXOSat.end(); ++it) {
-	    LogPrintf("(%d)",it->first);
-	    }*/
-	  if (!ReUpdateMatureUTXOSat(pindexCur,nHeightState-1,view,chainparams.GetConsensus()))
+	auto it = pindex->pprev->nMatureSat.find(nHeightCur);
+	if (it == pindex->pprev->nMatureSat.end()) { // recalculate if not there
+	  LogPrintf("for pindexCur height %d no mature utxo data for state %d. Map size = %lu\n",pindex->pprev->nHeight,nHeightCur,pindex->pprev->nMatureSat.size());
+	  LogPrintf("please reindex\n");
+	  if (!ReUpdateMatureUTXOSat(pindex->pprev,nHeightCur,view,chainparams.GetConsensus()))
 	    return error("ConnectBlock(): Failed to reupdate mature satoshis from UTXOs");
 	}
-	pindexCur->nMatureSat[nHeightState] = pindexCur->nMatureSat[nHeightState-1];
-	pindexCur = pindexCur->pprev;
+	pindex->nMatureSat[nHeightCur] = pindex->pprev->nMatureSat[nHeightCur];
+	pindex->nGenerated[nHeightCur] = pindex->pprev->nGenerated[nHeightCur];
+	nHeightCur--;
       }
       pindex->nMatureSat[nHeightState] = pindex->pprev->nMatureSat[nHeightState-1];
+      //pindex->nMatureSat[nHeightState] = pindex->pprev->nMatureSat[nHeightState-1];
       for (auto it = heightToVals.begin(); it != heightToVals.end(); ++it) { // subtract the spent inputs of this block
 	int nHeight = it->first;
 	CAmount nValue = it->second;
@@ -2292,25 +2298,26 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
       CAmount nMatured = 0;
       if (nHeightState > COINBASE_MATURITY) { // add the matured outputs
 	int nHeightMatured = nHeightState - COINBASE_MATURITY;
-	CBlockIndex * pindexMatured = pindex->GetAncestor(nHeightMatured);
-	nMatured = pindexMatured->nGenerated;
+	//CBlockIndex * pindexMatured = pindex->GetAncestor(nHeightMatured);
+	nMatured = pindex->nGenerated[nHeightMatured];
 	if (nMatured <= 0) {
 	  LogPrintf("nMatured<=0\n");
 	}
 	else {
 	  LogPrintf("nMatured = %llu\n",nMatured);
 	}
-	CBlockIndex * pindexCur = pindex;
+	//CBlockIndex * pindexCur = pindex;
+	int nHeightCur = pindex->nHeight;
 	//LogPrintf("nHeightMatured = %d\n",nHeightMatured);
 	do {
-	  pindexCur->nMatureSat[nHeightState] += nMatured;
+	  pindex->nMatureSat[nHeightCur] += nMatured;
 	  //LogPrintf("height %d nMatureUTXOSat %llu\n",pindexCur->nHeight,pindexCur->nMatureUTXOSat);
-	  pindexCur = pindexCur->pprev;
-	} while (pindexCur->nHeight > nHeightMatured);
+	  nHeightCur--;
+	} while (nHeightCur > nHeightMatured);
       }
     }
     
-    LogPrintf("height %d nMatureSat %llu nGenerated %llu nMoneySupply %llu\n",nHeightState,pindex->nMatureSat[nHeightState],pindex->nGenerated,pindex->nMoneySupply);
+    LogPrintf("height %d nMatureSat %llu nGenerated %llu nMoneySupply %llu\n",nHeightState,pindex->nMatureSat[nHeightState],pindex->nGenerated[nHeightState],pindex->nMoneySupply);
 
     bool posEnabled = false;
     bool posEnabledNext = false;
@@ -2588,8 +2595,9 @@ void static UpdateTip(CBlockIndex *pindexNew, const CChainParams& chainParams) {
 }
 
 /** Disconnect chainActive's tip. You probably want to call mempool.removeForReorg and manually re-limit mempool size after this, with cs_main held. */
-bool static DisconnectTip(CValidationState& state, const CChainParams& chainparams, bool fBare = false)
+bool DisconnectTip(CValidationState& state, const CChainParams& chainparams, bool fBare)
 {
+  LogPrintf("DisconnectTip\n");
     CBlockIndex *pindexDelete = chainActive.Tip();
     assert(pindexDelete);
     // Read block from disk.
@@ -4148,6 +4156,8 @@ bool RewindBlockIndex(const CChainParams& params)
         }
         nHeight++;
     }
+
+    LogPrintf("rewind with nHeight = %d\n",nHeight);
 
     // nHeight is now the height of the first insufficiently-validated block, or tipheight + 1
     CValidationState state;
