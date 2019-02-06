@@ -79,7 +79,7 @@ public:
         consensus.nPowTargetTimespan = 14 * 24 * 60 * 60; // two weeks
         consensus.nPowTargetSpacing = 10 * 60;
         consensus.fPowAllowMinDifficultyBlocks = true; // switch to true for testing forks
-	consensus.nHeightMinDiff = 602640;
+	consensus.nHeightMinDiff = 602660;
         consensus.fPowNoRetargeting = false;
         consensus.nRuleChangeActivationThreshold = 8; // 80% of 10
         consensus.nMinerConfirmationWindow = 10; // nPowTargetTimespan / nPowTargetSpacing
