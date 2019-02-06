@@ -33,13 +33,13 @@ unsigned int GetNextWorkRequired(const CBlockIndex* pindexLast, const CBlockHead
     bool forkPrev = EnforceProofOfStake(pindexLast->pprev,params);
     if ((pindexLast->nHeight+1) % params.DifficultyAdjustmentInterval(fork) != 0)
     {
-        if (params.fPowAllowMinDifficultyBlocks)
+        if (params.fPowAllowMinDifficultyBlocks && pindexLast->nHeight >= params.nHeightMinDiff)
         {
 	  LogPrintf("allowmindiff\n");
             // Special difficulty rule for testnet:
             // If the new block's timestamp is more than 2* 10 minutes
             // then allow mining of a min-difficulty block.
-	  if (pblock->GetBlockTime() > pindexLast->GetBlockTime() + params.nPowTargetSpacing*2 && pindexLast->nHeight >= params.nHeightMinDiff) {
+	  if (pblock->GetBlockTime() > pindexLast->GetBlockTime() + params.nPowTargetSpacing*2) {
 	    LogPrintf("min diff block time and height met\n");
 	    return UintToArith256(uint256S("7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")).GetCompact();
 	  }
