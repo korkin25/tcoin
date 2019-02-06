@@ -65,7 +65,7 @@ unsigned int GetNextWorkRequired(const CBlockIndex* pindexLast, const CBlockHead
     int64_t nFirstBlockTime =  pindexFirst->GetBlockTime();
     if (fork)
       nFirstBlockTime =  pindexFirst->GetMedianTimePast();
-    return CalculateNextWorkRequired(pindexLast, pindexFirst->GetBlockTime(), params);
+    return CalculateNextWorkRequired(pindexLast, nFirstBlockTime, params);
 }
 
 unsigned int CalculateNextWorkRequired(const CBlockIndex* pindexLast, int64_t nFirstBlockTime, const Consensus::Params& params)
@@ -75,11 +75,11 @@ unsigned int CalculateNextWorkRequired(const CBlockIndex* pindexLast, int64_t nF
 
     // Limit adjustment step
     int64_t nActualTimespan = pindexLast->GetBlockTime() - nFirstBlockTime;
+    bool fork = EnforceProofOfStake(pindexLast,params);
+    bool forkPrev = EnforceProofOfStake(pindexLast->pprev,params);
     if (fork)
       nActualTimespan = pindexLast->GetMedianTimePast() - nFirstBlockTime;
     int64_t targetTimespan = params.nPowTargetTimespan;
-    bool fork = EnforceProofOfStake(pindexLast,params);
-    bool forkPrev = EnforceProofOfStake(pindexLast->pprev,params);
     if (fork)
 	targetTimespan /= 14;
     if (nActualTimespan < params.nPowTargetTimespan/4 && (!fork || forkPrev))
