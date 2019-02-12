@@ -148,14 +148,14 @@ bool VerifyHelperSignature (const CHelperBlock* phblock, const CKeyID winningAdd
   return (pubkey.GetID() == winningAddress);
 }
 
-CKeyID GetWinningAddress (const CBlockIndex* pindex, const Consensus::Params& params) {
+CKeyID GetWinningAddress (const CBlockIndex* pindex, int nHeight, const Consensus::Params& params) {
   int startBlock = 1;
-  int nHeight = pindex->nHeight;
   if (nHeight > params.nPosLookback)
     startBlock += nHeight-params.nPosLookback;
+  const CBlockIndex* pindexCur = pindex->GetAncestor(nHeight);
 
   uint64_t moneySupplyUsed = pindex->nMatureSat.at(nHeight) - pindex->nMatureSat.at(startBlock-1);
-  arith_uint256 hashBlock = UintToArith256(pindex->GetBlockHash());
+  arith_uint256 hashBlock = UintToArith256(pindexCur->GetBlockHash());
   arith_uint256 quotient = hashBlock / moneySupplyUsed;
   arith_uint256 subtractor = moneySupplyUsed*quotient;
   uint64_t winningSat = (hashBlock-subtractor).GetLow64();
@@ -186,7 +186,7 @@ CKeyID GetWinningAddress (const CBlockIndex* pindex, const Consensus::Params& pa
     LogPrintf("can't find winning block\n");
     return CKeyID();
   }
-  LogPrintf("nHeight %d moneySupplyUsed %llu winningSat %llu winningBlockNumber %llu winningBlock %u\n",nHeight,moneySupplyUsed,winningSat,winningBlockNumber,winningBlockHeight);
+  //LogPrintf("nHeight %d moneySupplyUsed %llu winningSat %llu winningBlockNumber %llu winningBlock %u\n",nHeight,moneySupplyUsed,winningSat,winningBlockNumber,winningBlockHeight);
 
   // iterate transactions in the winning block to find the winning UTXO
   CScript winningUTXO;
@@ -228,25 +228,26 @@ CKeyID GetWinningAddress (const CBlockIndex* pindex, const Consensus::Params& pa
   return keyID;
 }
 
-bool HasHelperBlock(const CBlockIndex* pindex, const Consensus::Params& params) {
-  if (!pindex)
+bool HasHelperBlock(const CBlockIndex* pindex, int nHeight, const Consensus::Params& params) {
+  const CBlockIndex* pindexCur = pindex->GetAncestor(nHeight);
+  if (!pindexCur)
     return true;
-  if (!EnforceProofOfStake(pindex->pprev,params))
+  if (!EnforceProofOfStake(pindexCur->pprev,params))
     return true;
-  int nHeight = pindex->nHeight;
+  //int nHeight = pindex->nHeight;
   if (nHeight <= 1)
     return true;
   //LogPrintf("check hasHelperBlock with nMatureSat %llu\n",pindex->nMatureSat.at(nHeight));
-  if (pindex->pprev->nMatureSat.at(nHeight-1) <= 0)
+  if (pindex->nMatureSat.at(nHeight-1) <= 0)
     return true;
 
   //LogPrintf("chainActive height = %d\n",chainActive.Height());
   CKeyID winningAddress;
-  if (!pindex->pprev->winningAddress.IsNull()) {
+  if (!pindexCur->pprev->winningAddress.IsNull()) {
     winningAddress = pindex->pprev->winningAddress;
   }
   else {
-    winningAddress = GetWinningAddress(pindex->pprev,params);
+    winningAddress = GetWinningAddress(pindex,pindexCur->pprev->nHeight,params);
   }
   if (winningAddress.IsNull()) {
     LogPrintf("no winning address\n");
@@ -254,11 +255,11 @@ bool HasHelperBlock(const CBlockIndex* pindex, const Consensus::Params& params) 
   }
   CBlock block;
   //LogPrintf("HasHelperBlock: may read block from disk...\n");
-  if (pindex->pblock) {
+  if (pindexCur->pblock) {
     //LogPrintf("have pindex->pblock\n");
-    block = *pindex->pblock;
+    block = *pindexCur->pblock;
   }
-  else if (!ReadBlockFromDisk(block,pindex,params)) {
+  else if (!ReadBlockFromDisk(block,pindexCur,params)) {
     LogPrintf("Can't read block from disk\n");
   }
   //LogPrintf("HasHelperBlock: readblockfrom disk finished\n");
@@ -271,7 +272,7 @@ bool HasHelperBlock(const CBlockIndex* pindex, const Consensus::Params& params) 
     LogPrintf("Helper block has wrong payment address\n");
     }*/
   CBlock blockPrev;
-  if (!ReadBlockFromDisk(blockPrev, pindex->pprev, params)) {
+  if (!ReadBlockFromDisk(blockPrev, pindexCur->pprev, params)) {
     LogPrintf("can't read prev block from disk\n");
     return false;
   }
@@ -293,9 +294,10 @@ bool HasHelperBlock(const CBlockIndex* pindex, const Consensus::Params& params) 
 
 int GetNBlocksWithoutHelper(const CBlockIndex* pindex, const Consensus::Params& params) {
   int n = 0;
-  while (!HasHelperBlock(pindex,params)) {
+  int nHeight = pindex->nHeight;
+  while (!HasHelperBlock(pindex,nHeight,params)) {
     n++;
-    pindex = pindex->pprev;
+    nHeight--;
   }
   return n;
 }
@@ -328,6 +330,8 @@ bool CheckProofOfStakeWork(CBlockIndex* pindex, const Consensus::Params& params)
   LogPrintf("nBlocksWithoutHelper = %d\n",nBlocksWithoutHelper);
   if (nBlocksWithoutHelper > 0) {
     unsigned int scalingFactor = mathPow(2,nBlocksWithoutHelper);
+    // tmp
+    scalingFactor = 1;
     arith_uint256 bnBits;
     bnBits.SetCompact(nBits);
     bnBits /= scalingFactor;

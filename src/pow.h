@@ -28,7 +28,11 @@ std::vector<unsigned char> GetHelperSignature(const CHelperBlock* phblock, CKey 
 
 bool VerifyHelperSignature(const CHelperBlock* phblock, const CKeyID winningAddress);
 
-CKeyID GetWinningAddress(const CBlockIndex* pindex, const Consensus::Params&);
+CKeyID GetWinningAddress(const CBlockIndex* pindex, int nHeight, const Consensus::Params&);
+
+int GetNBlocksWithoutHelper(const CBlockIndex* pindex, const Consensus::Params& params);
+
+int GetPosPhase (const CBlockIndex* pindex, const Consensus::Params& params);
 
 /** Check whether a block hash satisfies the proof-of-stake-work requirement specified by nBits and stake signed */
 bool CheckProofOfStakeWork(CBlockIndex* pindex, const Consensus::Params&);

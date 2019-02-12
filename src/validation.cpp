@@ -1686,6 +1686,22 @@ void static FlushBlockFile(bool fFinalize = false)
         FileCommit(fileOld);
         fclose(fileOld);
     }
+
+    // Write current block height to info.dat
+    boost::filesystem::path pathInfo = GetDataDir() / "info.dat";
+    unsigned short randv = 0;
+    GetRandBytes((unsigned char*)&randv, sizeof(randv));
+    std::string tmpfn = strprintf("info.dat.%04x", randv);
+    boost::filesystem::path pathTmp = GetDataDir() / tmpfn;
+    FILE *file = fopen(pathTmp.string().c_str(), "w");
+    if (file!=NULL) {
+      char heightStr [30];
+      sprintf(heightStr,"height %d\n",chainActive.Height());
+      fputs(heightStr,file);
+      fclose(file);
+      RenameOver(pathTmp, pathInfo);
+    }
+    
 }
 
 bool FindUndoPos(CValidationState &state, int nFile, CDiskBlockPos &pos, unsigned int nAddSize);
@@ -2336,7 +2352,7 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
     pindex->pblock = 0;
 
     if (posEnabledNext) {
-      pindex->winningAddress = GetWinningAddress(pindex,chainparams.GetConsensus()); // use current block for getting the next winner
+      pindex->winningAddress = GetWinningAddress(pindex,pindex->nHeight,chainparams.GetConsensus()); // use current block for getting the next winner
       // See if the wallet owns this address
       LOCK2(cs_main, pwalletMain->cs_wallet);
       if (!pwalletMain->IsLocked()) {

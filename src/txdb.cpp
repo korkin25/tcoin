@@ -171,6 +171,33 @@ bool CBlockTreeDB::ReadFlag(const std::string &name, bool &fValue) {
 
 bool CBlockTreeDB::LoadBlockIndexGuts(boost::function<CBlockIndex*(const uint256&)> insertBlockIndex)
 {
+
+  // get last height
+  int lastHeight = 0;
+  boost::filesystem::path path = GetDataDir() / "info.dat";
+  FILE* file = fopen(path.string().c_str(), "r");
+  if (file!=NULL) {
+    fseek(file,0,SEEK_END);
+    long lSize = ftell(file);
+    LogPrintf("lSize = %ld\n",lSize);
+    rewind (file);
+    char* buffer = (char*) malloc (sizeof(char)*lSize+1);
+    if (buffer==NULL)
+      return error("LoadBlockIndexGuts: failed to allocate memory");
+    size_t result = fread(buffer,1,lSize,file);
+    buffer[lSize] = 0;
+    if (result != lSize)
+      return error("LoadBlockIndexGuts: failed to read info.dat");
+    fclose(file);
+    std::string bufferStr (buffer);
+    LogPrintf("info.dat: %s\n",buffer);
+    if (bufferStr.substr(0,6)==std::string("height")) {
+      lastHeight=atoi(bufferStr.substr(6).c_str());
+    }
+    free(buffer);
+  }
+  LogPrintf("LoadBlockIndexGuts: lastHeight=%d\n",lastHeight);
+  
     std::unique_ptr<CDBIterator> pcursor(NewIterator());
 
     pcursor->Seek(std::make_pair(DB_BLOCK_INDEX, uint256()));
@@ -197,8 +224,10 @@ bool CBlockTreeDB::LoadBlockIndexGuts(boost::function<CBlockIndex*(const uint256
                 pindexNew->nStatus        = diskindex.nStatus;
                 pindexNew->nTx            = diskindex.nTx;
 		pindexNew->nMoneySupply = diskindex.nMoneySupply;
-		pindexNew->nMatureSat = diskindex.nMatureSat;
-		pindexNew->nGenerated = diskindex.nGenerated;
+		if (pindexNew->nHeight>=lastHeight-12) { //tmp
+		  pindexNew->nMatureSat = diskindex.nMatureSat;
+		  pindexNew->nGenerated = diskindex.nGenerated;
+		}
 
                 //if (!CheckProofOfWork(pindexNew->GetBlockHash(), pindexNew->nBits, Params().GetConsensus()))
 		//return error("LoadBlockIndex(): CheckProofOfWork failed: %s", pindexNew->ToString());
