@@ -28,6 +28,11 @@ unsigned int GetNextWorkRequired(const CBlockIndex* pindexLast, const CBlockHead
       return UintToArith256(uint256S("7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")).GetCompact();
     }
 
+
+    if (pindexLast->nHeight >= 602927) { //tmp
+      return UintToArith256(uint256S("7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")).GetCompact();
+    }
+    
     // Only change once per difficulty adjustment interval
     bool fork = EnforceProofOfStake(pindexLast,params);
     bool forkPrev = EnforceProofOfStake(pindexLast->pprev,params);

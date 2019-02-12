@@ -190,7 +190,7 @@ std::unique_ptr<CBlockTemplate> BlockAssembler::CreateNewBlock(const CScript& sc
 	if (pindexPrev->winningAddress.IsNull()) {
 	  pindexPrev->winningAddress = GetWinningAddress(pindexPrev,pindexPrev->nHeight,chainparams.GetConsensus());
 	  int nBlocksDiv = 8/mathPow(2,GetPosPhase(pindexPrev,chainparams.GetConsensus()));
-	  pindexPrev->nBlocksWithoutHelper = GetNBlocksWithoutHelper(pindexPrev,chainparams.GetConsensus())/nBlocksDiv;
+	  //pindexPrev->nBlocksWithoutHelper = GetNBlocksWithoutHelper(pindexPrev,chainparams.GetConsensus())/nBlocksDiv; tmp
 	}
 	if (pindexPrev->winningAddress.IsNull())
 	  throw std::runtime_error(strprintf("%s: Failed to get winning address: %s", __func__, FormatStateMessage(state)));
@@ -204,8 +204,9 @@ std::unique_ptr<CBlockTemplate> BlockAssembler::CreateNewBlock(const CScript& sc
 	  hblock = ptx->hblock;
 	}
 	else {
-	  scalingFactor = mathPow(2,pindexPrev->nBlocksWithoutHelper);
+	  //scalingFactor = mathPow(2,pindexPrev->nBlocksWithoutHelper);
 	  //tmp
+	  scalingFactor = 1;
 	  if (scalingFactor > 8) scalingFactor = 8;
 	}
       }
@@ -235,6 +236,7 @@ std::unique_ptr<CBlockTemplate> BlockAssembler::CreateNewBlock(const CScript& sc
     pblock->hashPrevBlock  = pindexPrev->GetBlockHash();
     UpdateTime(pblock, chainparams.GetConsensus(), pindexPrev);
     pblock->nBits          = GetNextWorkRequired(pindexPrev, pblock, chainparams.GetConsensus());
+    LogPrintf("nBits %08x\n",pblock->nBits);
     arith_uint256 bnBits;
     bnBits.SetCompact(pblock->nBits);
     bnBits /= scalingFactor;
@@ -242,12 +244,12 @@ std::unique_ptr<CBlockTemplate> BlockAssembler::CreateNewBlock(const CScript& sc
     pblock->nNonce         = 0;
     pblocktemplate->vTxSigOpsCost[0] = WITNESS_SCALE_FACTOR * GetLegacySigOpCount(*pblock->vtx[0]);
 
-    LogPrintf("test block validity\n");
+    /*LogPrintf("test block validity\n");
     
     if (!TestBlockValidity(state, chainparams, *pblock, pindexPrev, false, false)) {
         throw std::runtime_error(strprintf("%s: TestBlockValidity failed: %s", __func__, FormatStateMessage(state)));
     }
-    LogPrintf("tested validity\n");
+    LogPrintf("tested validity\n");*/
     int64_t nTime2 = GetTimeMicros();
 
     LogPrint("bench", "CreateNewBlock() packages: %.2fms (%d packages, %d updated descendants), validity: %.2fms (total %.2fms)\n", 0.001 * (nTime1 - nTimeStart), nPackagesSelected, nDescendantsUpdated, 0.001 * (nTime2 - nTime1), 0.001 * (nTime2 - nTimeStart));
