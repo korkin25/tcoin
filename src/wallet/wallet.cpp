@@ -2775,7 +2775,11 @@ bool CWallet::CommitTransaction(CWalletTx& wtxNew, CReserveKey& reservekey, CCon
         if (fBroadcastTransactions)
         {
             // Broadcast
-            if (!wtxNew.AcceptToMemoryPool(maxTxFee, state)) {
+	  if (!wtxNew.AcceptToMemoryPool(maxTxFee, state)) {
+	    if (!strcmp(state.GetRejectReason().c_str(),"helper-in-non-coinbase")) {
+	      LogPrintf("allow broadcast of helper-in-non-coinbase\n");
+	      wtxNew.RelayWalletTransaction(connman);
+	    }
                 LogPrintf("CommitTransaction(): Transaction cannot be broadcast immediately, %s\n", state.GetRejectReason());
                 // TODO: if we expect the failure to be long term or permanent, instead delete wtx from the wallet and return failure.
             } else {
