@@ -2780,11 +2780,13 @@ bool CWallet::CommitTransaction(CWalletTx& wtxNew, CReserveKey& reservekey, CCon
 	      LogPrintf("allow broadcast of helper-in-non-coinbase\n");
 	      wtxNew.RelayWalletTransaction(connman);
 	    }
-                LogPrintf("CommitTransaction(): Transaction cannot be broadcast immediately, %s\n", state.GetRejectReason());
-                // TODO: if we expect the failure to be long term or permanent, instead delete wtx from the wallet and return failure.
-            } else {
-                wtxNew.RelayWalletTransaction(connman);
-            }
+	    else {
+	      LogPrintf("CommitTransaction(): Transaction cannot be broadcast immediately, %s\n", state.GetRejectReason());
+	    }
+	    // TODO: if we expect the failure to be long term or permanent, instead delete wtx from the wallet and return failure.
+	  } else {
+	    wtxNew.RelayWalletTransaction(connman);
+	  }
         }
     }
     return true;

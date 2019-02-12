@@ -29,9 +29,9 @@ unsigned int GetNextWorkRequired(const CBlockIndex* pindexLast, const CBlockHead
     }
 
 
-    if (pindexLast->nHeight >= 602927) { //tmp
+    /*if (pindexLast->nHeight >= 602927) { //tmp
       return UintToArith256(uint256S("7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")).GetCompact();
-    }
+      }*/
     
     // Only change once per difficulty adjustment interval
     bool fork = EnforceProofOfStake(pindexLast,params);
@@ -302,6 +302,7 @@ int GetNBlocksWithoutHelper(const CBlockIndex* pindex, const Consensus::Params& 
   int nHeight = pindex->nHeight;
   while (!HasHelperBlock(pindex,nHeight,params)) {
     n++;
+    //if (n>5) break; //tmp
     nHeight--;
   }
   return n;
@@ -336,7 +337,7 @@ bool CheckProofOfStakeWork(CBlockIndex* pindex, const Consensus::Params& params)
   if (nBlocksWithoutHelper > 0) {
     unsigned int scalingFactor = mathPow(2,nBlocksWithoutHelper);
     // tmp
-    scalingFactor = 1;
+    //scalingFactor = 1;
     arith_uint256 bnBits;
     bnBits.SetCompact(nBits);
     bnBits /= scalingFactor;

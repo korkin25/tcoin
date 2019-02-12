@@ -190,7 +190,7 @@ std::unique_ptr<CBlockTemplate> BlockAssembler::CreateNewBlock(const CScript& sc
 	if (pindexPrev->winningAddress.IsNull()) {
 	  pindexPrev->winningAddress = GetWinningAddress(pindexPrev,pindexPrev->nHeight,chainparams.GetConsensus());
 	  int nBlocksDiv = 8/mathPow(2,GetPosPhase(pindexPrev,chainparams.GetConsensus()));
-	  //pindexPrev->nBlocksWithoutHelper = GetNBlocksWithoutHelper(pindexPrev,chainparams.GetConsensus())/nBlocksDiv; tmp
+	  pindexPrev->nBlocksWithoutHelper = GetNBlocksWithoutHelper(pindexPrev,chainparams.GetConsensus())/nBlocksDiv;
 	}
 	if (pindexPrev->winningAddress.IsNull())
 	  throw std::runtime_error(strprintf("%s: Failed to get winning address: %s", __func__, FormatStateMessage(state)));
@@ -204,10 +204,10 @@ std::unique_ptr<CBlockTemplate> BlockAssembler::CreateNewBlock(const CScript& sc
 	  hblock = ptx->hblock;
 	}
 	else {
-	  //scalingFactor = mathPow(2,pindexPrev->nBlocksWithoutHelper);
+	  scalingFactor = mathPow(2,pindexPrev->nBlocksWithoutHelper);
 	  //tmp
-	  scalingFactor = 1;
-	  if (scalingFactor > 8) scalingFactor = 8;
+	  //scalingFactor = 1;
+	  //if (scalingFactor > 8) scalingFactor = 8;
 	}
       }
       else {

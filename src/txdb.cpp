@@ -224,7 +224,7 @@ bool CBlockTreeDB::LoadBlockIndexGuts(boost::function<CBlockIndex*(const uint256
                 pindexNew->nStatus        = diskindex.nStatus;
                 pindexNew->nTx            = diskindex.nTx;
 		pindexNew->nMoneySupply = diskindex.nMoneySupply;
-		if (pindexNew->nHeight>=lastHeight-12) { //tmp
+		if (pindexNew->nHeight>=lastHeight-12) {
 		  pindexNew->nMatureSat = diskindex.nMatureSat;
 		  pindexNew->nGenerated = diskindex.nGenerated;
 		}
