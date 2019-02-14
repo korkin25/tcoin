@@ -81,8 +81,8 @@ public:
         consensus.fPowAllowMinDifficultyBlocks = false; // switch to true for testing forks
 	consensus.nHeightMinDiff = 602661;
         consensus.fPowNoRetargeting = false;
-        consensus.nRuleChangeActivationThreshold = 2; // 80% of 10
-        consensus.nMinerConfirmationWindow = 3; // nPowTargetTimespan / nPowTargetSpacing
+        consensus.nRuleChangeActivationThreshold = 1; // 80% of 10
+        consensus.nMinerConfirmationWindow = 1; // nPowTargetTimespan / nPowTargetSpacing
 	consensus.nPosLookback = 7104000; // 32 periods ~ 128 years
 	consensus.nHeightCP = 532800; // 80% premine
 	consensus.nHeightLastAnomaly = 135995; // last non standard block before premine + 99
